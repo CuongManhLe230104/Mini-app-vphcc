@@ -17,14 +17,17 @@
   "scripts": {
     "login": "zmp login",
     "start": "zmp start",
-    "deploy": "zmp deploy"
+    "deploy": "zmp deploy",
+    "build": "vite build .",
+    "test": "node --experimental-vm-modules --test test/*.test.cjs"
   },
   "dependencies": {
     "jotai": "^2.12.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zmp-sdk": "^2.53.0",
-    "zmp-ui": "latest"
+    "zmp-ui": "latest",
+    "react-router-dom": "^6.30.6"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",

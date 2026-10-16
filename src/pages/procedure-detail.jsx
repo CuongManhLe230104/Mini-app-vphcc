@@ -1,7 +1,9 @@
+import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Box, Header, Icon, Page, Text } from "zmp-ui";
 
-import { PROCEDURES } from "../mocks/procedures";
+import { PROCEDURES as MOCK_PROCEDURES } from "../mocks/procedures";
+import { api } from "../services/api";
 
 function InfoRow({ icon, label, value }) {
   return (
@@ -20,7 +22,30 @@ function InfoRow({ icon, label, value }) {
 function ProcedureDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const proc = PROCEDURES.find((p) => p.id === id);
+  const mockProc = MOCK_PROCEDURES.find((p) => p.id === id);
+  const [proc, setProc] = useState(mockProc);
+
+  useEffect(() => {
+    if (!id) return;
+    api.get(`/procedures/${id}`)
+      .then((data) => {
+        if (data && data.name) {
+          setProc({
+            id: data.id,
+            code: data.code,
+            name: data.name,
+            authority: data.authority,
+            deadline: data.deadline,
+            fee: data.fee,
+            components: Array.isArray(data.components) ? data.components : [],
+            submission: data.submission,
+            sourceUrl: data.sourceUrl,
+            reviewDate: data.reviewDate ? new Date(data.reviewDate).toLocaleDateString("vi-VN") : null,
+          });
+        }
+      })
+      .catch(() => {});
+  }, [id]);
 
   if (!proc) {
     return (
@@ -62,7 +87,7 @@ function ProcedureDetailPage() {
             Thông tin chung
           </Text>
           <InfoRow icon="zi-home" label="Cơ quan thực hiện" value={proc.authority} />
-          <InfoRow icon="zi-clock" label="Thời hạn giải quyết" value={proc.deadline} />
+          <InfoRow icon="zi-clock-1" label="Thời hạn giải quyết" value={proc.deadline} />
           <InfoRow icon="zi-star" label="Lệ phí" value={proc.fee} />
         </Box>
 
