@@ -1,20 +1,58 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Box, Header, Icon, Input, Page, Text } from "zmp-ui";
 
-import { PROCEDURE_FIELDS, PROCEDURES } from "../mocks/procedures";
+import { PROCEDURE_FIELDS as MOCK_FIELDS, PROCEDURES as MOCK_PROCEDURES } from "../mocks/procedures";
+import { api } from "../services/api";
 
 function ProceduresPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [activeField, setActiveField] = useState("all");
+  const [fields, setFields] = useState(MOCK_FIELDS);
+  const [procedures, setProcedures] = useState(MOCK_PROCEDURES);
 
-  const filtered = PROCEDURES.filter((p) => {
+  useEffect(() => {
+    // Tải danh sách lĩnh vực
+    api.get("/procedures/fields")
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          const mapped = [
+            { id: "all", label: "Tất cả" },
+            ...data.map((f) => ({ id: f.slug, label: f.label })),
+          ];
+          setFields(mapped);
+        }
+      })
+      .catch(() => {});
+
+    // Tải danh sách thủ tục
+    api.get("/procedures?limit=100")
+      .then((res) => {
+        if (res && Array.isArray(res.data) && res.data.length > 0) {
+          const mapped = res.data.map((p) => ({
+            id: p.id,
+            code: p.code,
+            name: p.name,
+            field: p.field?.slug || "other",
+            authority: p.authority,
+            deadline: p.deadline,
+            fee: p.fee,
+            components: Array.isArray(p.components) ? p.components : [],
+            submission: p.submission,
+          }));
+          setProcedures(mapped);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const filtered = procedures.filter((p) => {
     const matchField = activeField === "all" || p.field === activeField;
     const matchSearch =
       !search.trim() ||
       p.name.toLowerCase().includes(search.toLowerCase()) ||
-      p.code.toLowerCase().includes(search.toLowerCase());
+      (p.code ?? "").toLowerCase().includes(search.toLowerCase());
     return matchField && matchSearch;
   });
 
@@ -38,7 +76,7 @@ function ProceduresPage() {
 
         {/* Lọc lĩnh vực */}
         <div className="flex gap-2 px-4 mb-4 overflow-x-auto scrollbar-hide pb-1">
-          {PROCEDURE_FIELDS.map((f) => (
+          {fields.map((f) => (
             <button
               key={f.id}
               onClick={() => setActiveField(f.id)}
@@ -83,7 +121,7 @@ function ProceduresPage() {
                     </Text>
                     <div className="flex gap-3 mt-2">
                       <div className="flex items-center gap-1">
-                        <Icon icon="zi-clock" className="text-gray-400" size={13} />
+                        <Icon icon="zi-clock-1" className="text-gray-400" size={13} />
                         <Text className="text-gray-500 text-xs">{proc.deadline}</Text>
                       </div>
                       <div className="flex items-center gap-1">

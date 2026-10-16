@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Box, Header, Icon, Input, Page, Text } from "zmp-ui";
 
-import { POST_TYPES, POSTS } from "../mocks/posts";
+import { POST_TYPES, POSTS as MOCK_POSTS } from "../mocks/posts";
+import { api } from "../services/api";
 
 function formatDate(iso) {
   const d = new Date(iso);
@@ -31,13 +32,28 @@ function PostsPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [activeType, setActiveType] = useState("all");
+  const [posts, setPosts] = useState(MOCK_POSTS);
 
-  const filtered = POSTS.filter((p) => {
+  useEffect(() => {
+    api.get("/posts?limit=50")
+      .then((res) => {
+        if (res && Array.isArray(res.data) && res.data.length > 0) {
+          const mapped = res.data.map((p) => ({
+            ...p,
+            type: (p.type || "news").toLowerCase(),
+          }));
+          setPosts(mapped);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const filtered = posts.filter((p) => {
     const matchType = activeType === "all" || p.type === activeType;
     const matchSearch =
       !search.trim() ||
       p.title.toLowerCase().includes(search.toLowerCase()) ||
-      p.summary.toLowerCase().includes(search.toLowerCase());
+      (p.summary ?? "").toLowerCase().includes(search.toLowerCase());
     return matchType && matchSearch;
   });
 
@@ -103,7 +119,7 @@ function PostsPage() {
                   {post.summary}
                 </Text>
                 <div className="flex items-center gap-1 mt-2">
-                  <Icon icon="zi-clock" className="text-gray-400" size={13} />
+                  <Icon icon="zi-clock-1" className="text-gray-400" size={13} />
                   <Text className="text-gray-400 text-xs">
                     {formatDate(post.publishedAt)}
                   </Text>

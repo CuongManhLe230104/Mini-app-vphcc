@@ -34,7 +34,7 @@ Không làm giả trạng thái hồ sơ hoặc kết quả gửi phản ánh. P
 | Ngôn ngữ | Giữ JSX, chuyển dần TypeScript | Không buộc đổi toàn bộ trước khi làm chức năng |
 | Gọi API | Lớp dịch vụ tập trung dùng fetch | Xử lý lỗi và phiên đăng nhập thống nhất |
 | Backend | Node.js + TypeScript + NestJS | Backend module hóa |
-| Database | PostgreSQL | Dữ liệu có quan hệ và lịch sử |
+| Database | MySQL | Dữ liệu có quan hệ và lịch sử |
 | Truy cập dữ liệu | Prisma + migration | Quản lý cấu trúc dữ liệu |
 | Quản trị | React + Vite + thư viện giao diện quản trị | Soạn bài, duyệt và xử lý phản ánh |
 | Kho tệp | Lưu trữ tương thích S3 | Ảnh, video, tài liệu |

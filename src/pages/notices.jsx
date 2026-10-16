@@ -1,6 +1,8 @@
+import { useState, useEffect } from "react";
 import { Box, Header, Icon, Page, Text } from "zmp-ui";
 
-import { NOTICES } from "../mocks/notices";
+import { NOTICES as MOCK_NOTICES } from "../mocks/notices";
+import { api } from "../services/api";
 
 function formatDate(dateStr) {
   const d = new Date(dateStr);
@@ -24,8 +26,31 @@ function StatusBadge({ isActive }) {
 }
 
 function NoticesPage() {
-  const active = NOTICES.filter((n) => n.isActive);
-  const expired = NOTICES.filter((n) => !n.isActive);
+  const [notices, setNotices] = useState(MOCK_NOTICES);
+
+  useEffect(() => {
+    api.get("/notices?includeArchived=true")
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          const mapped = data.map((n) => ({
+            id: n.id,
+            title: n.title,
+            description: n.description,
+            startDate: n.startDate,
+            endDate: n.endDate,
+            isActive: Boolean(n.isActive),
+            documents: Array.isArray(n.documents)
+              ? n.documents.map((d) => ({ name: d.name, url: d.fileUrl }))
+              : [],
+          }));
+          setNotices(mapped);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const active = notices.filter((n) => n.isActive);
+  const expired = notices.filter((n) => !n.isActive);
 
   return (
     <Page className="bg-gray-50">
@@ -55,7 +80,7 @@ function NoticesPage() {
                   </Text>
                   <div className="flex items-center gap-4">
                     <div className="flex items-center gap-1">
-                      <Icon icon="zi-clock" className="text-gray-400" size={13} />
+                      <Icon icon="zi-clock-1" className="text-gray-400" size={13} />
                       <Text className="text-gray-400 text-xs">
                         {formatDate(n.startDate)} – {formatDate(n.endDate)}
                       </Text>
@@ -65,7 +90,7 @@ function NoticesPage() {
                     <div className="mt-3 pt-3 border-t border-gray-100">
                       {n.documents.map((doc, i) => (
                         <div key={i} className="flex items-center gap-2">
-                          <Icon icon="zi-document" className="text-blue-500" size={16} />
+                          <Icon icon="zi-file" className="text-blue-500" size={16} />
                           <Text className="text-blue-600 text-sm">{doc.name}</Text>
                         </div>
                       ))}
@@ -96,7 +121,7 @@ function NoticesPage() {
                     <StatusBadge isActive={n.isActive} />
                   </div>
                   <div className="flex items-center gap-1 mt-1">
-                    <Icon icon="zi-clock" className="text-gray-400" size={13} />
+                    <Icon icon="zi-clock-1" className="text-gray-400" size={13} />
                     <Text className="text-gray-400 text-xs">
                       {formatDate(n.startDate)} – {formatDate(n.endDate)}
                     </Text>
@@ -109,7 +134,7 @@ function NoticesPage() {
 
         {NOTICES.length === 0 && (
           <Box className="mx-4 bg-white rounded-xl p-8 text-center">
-            <Icon icon="zi-document" className="text-gray-300 mb-2" size={40} />
+            <Icon icon="zi-file" className="text-gray-300 mb-2" size={40} />
             <Text className="text-gray-400 text-sm">Chưa có nội dung niêm yết</Text>
           </Box>
         )}

@@ -1,0 +1,284 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// NGƯỜI DÙNG VÀ XÁC THỰC
+// ============================================================
+
+/// Vai trò cán bộ quản trị
+enum AdminRole {
+  SUPER_ADMIN   // Quản trị viên cấp cao
+  EDITOR        // Biên tập viên: soạn bài
+  REVIEWER      // Người duyệt: duyệt và đăng bài
+  HANDLER       // Cán bộ xử lý phản ánh
+}
+
+/// Người dân — xác thực qua Zalo
+model Citizen {
+  id          String     @id @default(uuid())
+  zaloId      String     @unique
+  name        String? @db.Text
+  avatar      String? @db.Text
+  phone       String?    // Giải mã từ token ở backend, không do client gửi
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  feedbacks   Feedback[]
+}
+
+/// Cán bộ — đăng nhập riêng (không qua Zalo)
+model Admin {
+  id             String      @id @default(uuid())
+  username       String      @unique
+  passwordHash   String
+  fullName       String @db.Text
+  role           AdminRole
+  isActive       Boolean     @default(true)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  // Quan hệ
+  authoredPosts  Post[]      @relation("PostAuthor")
+  reviewedPosts  Post[]      @relation("PostReviewer")
+  handledFeedback Feedback[] @relation("FeedbackHandler")
+  feedbackReplies FeedbackReply[]
+  auditLogs      AuditLog[]
+}
+
+// ============================================================
+// THÔNG TIN TRUNG TÂM
+// ============================================================
+
+/// Thông tin Trung tâm Phục vụ hành chính công
+model Center {
+  id             String   @id @default(uuid())
+  name           String @db.Text
+  fullName       String @db.Text
+  address        String @db.Text
+  hotline        String
+  oaId           String?
+  servicePortalUrl  String? @db.Text
+  caseTrackingUrl   String? @db.Text
+  workingHours   Json     // [{ day: string, hours: string }]
+  bannerImages   Json?    // [{ url: string, alt: string }]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// ============================================================
+// THỦ TỤC HÀNH CHÍNH
+// ============================================================
+
+/// Lĩnh vực thủ tục
+model ProcedureField {
+  id         String      @id @default(uuid())
+  slug       String      @unique  // vd: "civil", "residence", "land"
+  label      String               // vd: "Hộ tịch", "Cư trú"
+  sortOrder  Int         @default(0)
+  procedures Procedure[]
+  createdAt  DateTime    @default(now())
+}
+
+/// Thủ tục hành chính
+model Procedure {
+  id            String          @id @default(uuid())
+  code          String?                  // Mã thủ tục (nếu có)
+  name          String @db.Text
+  fieldId       String
+  field         ProcedureField  @relation(fields: [fieldId], references: [id])
+  authority     String @db.Text // Cơ quan thực hiện
+  deadline      String @db.Text // Thời hạn giải quyết
+  fee           String @db.Text // Lệ phí
+  components    Json                     // Mảng thành phần hồ sơ: string[]
+  submission    String @db.Text // Cách thức nộp
+  sourceUrl     String? @db.Text // Nguồn chính thức
+  reviewDate    DateTime?                // Ngày rà soát
+  isValid       Boolean       @default(true)
+  sortOrder     Int           @default(0)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+// ============================================================
+// TIN TỨC, HƯỚNG DẪN, VIDEO, FAQ
+// ============================================================
+
+/// Loại bài viết
+enum PostType {
+  NEWS    // Tin tức
+  GUIDE   // Hướng dẫn
+  VIDEO   // Video
+}
+
+/// Trạng thái bài viết — quy trình duyệt
+enum PostStatus {
+  DRAFT       // Nháp
+  PENDING     // Chờ duyệt
+  PUBLISHED   // Đã đăng
+  REJECTED    // Từ chối
+  ARCHIVED    // Lưu trữ
+}
+
+/// Bài viết (tin tức, hướng dẫn, video)
+model Post {
+  id            String      @id @default(uuid())
+  type          PostType
+  status        PostStatus  @default(DRAFT)
+  title         String @db.Text
+  summary       String? @db.Text
+  content       String      @db.Text
+  thumbnail     String? @db.Text
+  videoUrl      String? @db.Text
+  tags          Json        @default("[]")
+  isHighlighted Boolean     @default(false)
+
+  // Quy trình duyệt
+  authorId      String
+  author        Admin       @relation("PostAuthor", fields: [authorId], references: [id])
+  reviewerId    String?
+  reviewer      Admin?      @relation("PostReviewer", fields: [reviewerId], references: [id])
+  rejectionNote String? @db.Text // Lý do từ chối
+  publishedAt   DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+/// Câu hỏi thường gặp — FAQ được duyệt
+model Faq {
+  id          String   @id @default(uuid())
+  question    String @db.Text
+  answer      String   @db.Text
+  category    String?
+  sortOrder   Int      @default(0)
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============================================================
+// NIÊM YẾT CÔNG KHAI
+// ============================================================
+
+/// Niêm yết công khai
+model Notice {
+  id          String          @id @default(uuid())
+  title       String @db.Text
+  description String          @db.Text
+  startDate   DateTime
+  endDate     DateTime
+  isActive    Boolean         @default(true)
+  documents   NoticeDocument[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+/// Tài liệu đính kèm niêm yết
+model NoticeDocument {
+  id        String   @id @default(uuid())
+  noticeId  String
+  notice    Notice   @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  name      String @db.Text
+  fileUrl   String @db.Text
+  fileSize  Int?
+  mimeType  String?
+  createdAt DateTime @default(now())
+}
+
+// ============================================================
+// PHẢN ÁNH KIẾN NGHỊ
+// ============================================================
+
+/// Trạng thái phản ánh
+enum FeedbackStatus {
+  SUBMITTED   // Đã gửi
+  RECEIVED    // Đã tiếp nhận
+  PROCESSING  // Đang xử lý
+  REPLIED     // Đã trả lời
+  CLOSED      // Đóng
+  NEED_MORE_INFO  // Yêu cầu bổ sung
+  TRANSFERRED     // Chuyển đơn vị
+}
+
+/// Phản ánh kiến nghị
+model Feedback {
+  id              String           @id @default(uuid())
+  trackingCode    String           @unique @default(uuid()) // Mã tra cứu
+  idempotencyKey  String?          @unique // Chống gửi trùng
+  citizenId       String
+  citizen         Citizen          @relation(fields: [citizenId], references: [id])
+  content         String           @db.Text
+  category        String?
+  attachments     FeedbackAttachment[]
+  status          FeedbackStatus   @default(SUBMITTED)
+
+  // Phân công
+  handlerId       String?
+  handler         Admin?           @relation("FeedbackHandler", fields: [handlerId], references: [id])
+
+  // Lịch sử
+  replies         FeedbackReply[]
+  statusHistory   FeedbackStatusLog[]
+
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+}
+
+/// Tệp đính kèm phản ánh
+model FeedbackAttachment {
+  id          String   @id @default(uuid())
+  feedbackId  String
+  feedback    Feedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  fileName    String
+  fileUrl     String @db.Text
+  fileSize    Int?
+  mimeType    String?
+  createdAt   DateTime @default(now())
+}
+
+/// Phản hồi của cán bộ
+model FeedbackReply {
+  id          String   @id @default(uuid())
+  feedbackId  String
+  feedback    Feedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  adminId     String
+  admin       Admin    @relation(fields: [adminId], references: [id])
+  content     String   @db.Text
+  createdAt   DateTime @default(now())
+}
+
+/// Lịch sử trạng thái phản ánh — không ghi đè
+model FeedbackStatusLog {
+  id          String         @id @default(uuid())
+  feedbackId  String
+  feedback    Feedback       @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  fromStatus  FeedbackStatus?
+  toStatus    FeedbackStatus
+  note        String? @db.Text
+  changedBy   String?        // Admin ID
+  createdAt   DateTime       @default(now())
+}
+
+// ============================================================
+// NHẬT KÝ KIỂM TOÁN
+// ============================================================
+
+/// Nhật ký thao tác quan trọng
+model AuditLog {
+  id        String   @id @default(uuid())
+  adminId   String?
+  admin     Admin?   @relation(fields: [adminId], references: [id])
+  action    String   // vd: "POST_PUBLISH", "FEEDBACK_ASSIGN"
+  resource  String   // vd: "post:abc-123"
+  detail    Json?    // Metadata bổ sung (không chứa dữ liệu nhạy cảm)
+  ip        String?
+  createdAt DateTime @default(now())
+}
+

@@ -1,7 +1,9 @@
+import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { Box, Header, Icon, Page, Text } from "zmp-ui";
 
-import { POSTS } from "../mocks/posts";
+import { POSTS as MOCK_POSTS } from "../mocks/posts";
+import { api } from "../services/api";
 
 function formatDate(iso) {
   const d = new Date(iso);
@@ -29,7 +31,23 @@ function PostTypeBadge({ type }) {
 
 function PostDetailPage() {
   const { id } = useParams();
-  const post = POSTS.find((p) => p.id === id);
+  const mockPost = MOCK_POSTS.find((p) => p.id === id);
+  const [post, setPost] = useState(mockPost);
+
+  useEffect(() => {
+    if (!id) return;
+    api.get(`/posts/${id}`)
+      .then((data) => {
+        if (data && data.title) {
+          setPost({
+            ...data,
+            type: (data.type || "news").toLowerCase(),
+            tags: Array.isArray(data.tags) ? data.tags : [],
+          });
+        }
+      })
+      .catch(() => {});
+  }, [id]);
 
   if (!post) {
     return (
@@ -61,7 +79,7 @@ function PostDetailPage() {
 
           {/* Ngày đăng */}
           <div className="flex items-center gap-1.5 mb-4 pb-4 border-b border-gray-100">
-            <Icon icon="zi-clock" className="text-gray-400" size={14} />
+            <Icon icon="zi-clock-1" className="text-gray-400" size={14} />
             <Text className="text-gray-400 text-sm">{formatDate(post.publishedAt)}</Text>
           </div>
 

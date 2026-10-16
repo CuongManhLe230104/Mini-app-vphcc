@@ -1,10 +1,13 @@
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Box, Button, Header, Icon, Page, Text } from "zmp-ui";
 
-import { CENTER_INFO } from "../mocks/center";
-import { POSTS } from "../mocks/posts";
+import { CENTER_INFO as MOCK_CENTER } from "../mocks/center";
+import { POSTS as MOCK_POSTS } from "../mocks/posts";
+import { api } from "../services/api";
 import { callHotline, followZaloOA, openServicePortal } from "../services/zalo";
 import Logo from "../components/logo";
+import { useZaloAction } from "../components/use-zalo-action";
 
 /** Danh sách tiện ích nhanh trên trang chủ */
 const QUICK_SERVICES = [
@@ -24,7 +27,7 @@ const QUICK_SERVICES = [
   },
   {
     label: "Niêm yết",
-    icon: "zi-document",
+    icon: "zi-file",
     color: "bg-green-50 text-green-600",
     action: "nav",
     to: "/notices",
@@ -38,7 +41,7 @@ const QUICK_SERVICES = [
   },
   {
     label: "Hotline",
-    icon: "zi-phone",
+    icon: "zi-call",
     color: "bg-red-50 text-red-600",
     action: "hotline",
   },
@@ -73,14 +76,40 @@ function PostTypeBadge({ type }) {
 
 function HomePage() {
   const navigate = useNavigate();
-  const highlighted = POSTS.filter((p) => p.isHighlighted).slice(0, 3);
+  const runZaloAction = useZaloAction();
+  const [centerInfo, setCenterInfo] = useState(MOCK_CENTER);
+  const [posts, setPosts] = useState(MOCK_POSTS);
+
+  useEffect(() => {
+    // Tải thông tin trung tâm từ backend
+    api.get("/center")
+      .then((data) => {
+        if (data && data.fullName) setCenterInfo(data);
+      })
+      .catch(() => {});
+
+    // Tải tin tức từ backend
+    api.get("/posts?limit=3")
+      .then((res) => {
+        if (res && Array.isArray(res.data) && res.data.length > 0) {
+          // Map kiểu dữ liệu từ backend sang format hiển thị
+          const mapped = res.data.map((p) => ({
+            ...p,
+            type: (p.type || "news").toLowerCase(),
+          }));
+          setPosts(mapped);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const highlighted = posts.filter((p) => p.isHighlighted).slice(0, 3);
 
   function handleQuickService(svc) {
     if (svc.action === "nav") navigate(svc.to);
-    else if (svc.action === "hotline") callHotline(CENTER_INFO.hotline);
+    else if (svc.action === "hotline") runZaloAction(() => callHotline(centerInfo.hotline));
     else if (svc.action === "oa") {
-      if (!CENTER_INFO.oaId) return; // OA ID chưa được cấu hình
-      followZaloOA(CENTER_INFO.oaId);
+      runZaloAction(() => followZaloOA(centerInfo.oaId));
     }
   }
 
@@ -105,7 +134,7 @@ function HomePage() {
           </div>
           <div className="mt-2 flex items-center gap-1.5">
             <Icon icon="zi-location" className="text-blue-300 flex-shrink-0" size={16} />
-            <Text className="text-blue-200 text-xs leading-tight">{CENTER_INFO.address}</Text>
+            <Text className="text-blue-200 text-xs leading-tight">{centerInfo.address}</Text>
           </div>
         </div>
 
@@ -189,10 +218,10 @@ function HomePage() {
           <div className="space-y-2.5">
             <button
               className="w-full bg-white border border-blue-200 rounded-xl py-3.5 px-4 flex items-center gap-3 active:opacity-70 transition-opacity"
-              onClick={() => openServicePortal(CENTER_INFO.servicePortalUrl)}
+              onClick={() => runZaloAction(() => openServicePortal(centerInfo.servicePortalUrl))}
             >
               <div className="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center flex-shrink-0">
-                <Icon icon="zi-send" className="text-blue-600" size={20} />
+                <Icon icon="zi-send-solid" className="text-blue-600" size={20} />
               </div>
               <div className="flex-1 text-left">
                 <Text className="text-gray-800 font-medium text-sm">
@@ -207,7 +236,7 @@ function HomePage() {
 
             <button
               className="w-full bg-white border border-blue-200 rounded-xl py-3.5 px-4 flex items-center gap-3 active:opacity-70 transition-opacity"
-              onClick={() => openServicePortal(CENTER_INFO.caseTrackingUrl)}
+              onClick={() => runZaloAction(() => openServicePortal(centerInfo.caseTrackingUrl))}
             >
               <div className="w-10 h-10 bg-green-50 rounded-full flex items-center justify-center flex-shrink-0">
                 <Icon icon="zi-search" className="text-green-600" size={20} />

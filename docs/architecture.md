@@ -7,7 +7,7 @@ Mini App Zalo cho Trung tâm Phục vụ hành chính công xã Nghĩa Thành.
 ## Sơ đồ lớp
 
 ```
-[Zalo App] ←→ [Mini App React/Vite] ←→ [Backend NestJS] ←→ [PostgreSQL]
+[Zalo App] ←→ [Mini App React/Vite] ←→ [Backend NestJS] ←→ [MySQL]
                                                           ←→ [S3 Storage]
                                                           ←→ [Hệ thống hồ sơ ngoài] (M6)
 ```
@@ -18,7 +18,7 @@ Mini App Zalo cho Trung tâm Phục vụ hành chính công xã Nghĩa Thành.
 |---|---|---|
 | Mini App | React 18 + Vite + ZaUI + Tailwind | Giữ nguyên nền tảng hiện có |
 | Backend | Node.js + TypeScript + NestJS | Module hóa theo nghiệp vụ |
-| Database | PostgreSQL + Prisma | Migration bảo toàn dữ liệu |
+| Database | MySQL + Prisma | Migration bảo toàn dữ liệu |
 | File storage | S3-compatible | Ảnh, video, tài liệu |
 | Admin | React + Vite | Trang quản trị cán bộ |
 

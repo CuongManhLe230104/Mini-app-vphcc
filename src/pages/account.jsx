@@ -1,6 +1,9 @@
+import { useState, useEffect } from "react";
 import { Box, Header, Icon, Page, Text } from "zmp-ui";
 
-import { CENTER_INFO } from "../mocks/center";
+import { useZaloAction } from "../components/use-zalo-action";
+import { CENTER_INFO as MOCK_CENTER } from "../mocks/center";
+import { api } from "../services/api";
 import { callHotline, followZaloOA, openZaloChat } from "../services/zalo";
 
 function SectionTitle({ children }) {
@@ -31,18 +34,32 @@ function ActionRow({ icon, iconBg, label, sublabel, onClick }) {
 }
 
 function AccountPage() {
+  const runZaloAction = useZaloAction();
+  const [centerInfo, setCenterInfo] = useState(MOCK_CENTER);
+
+  useEffect(() => {
+    api.get("/center")
+      .then((data) => {
+        if (data && data.fullName) {
+          setCenterInfo({
+            ...data,
+            workingHours: Array.isArray(data.workingHours) ? data.workingHours : MOCK_CENTER.workingHours,
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   function handleHotline() {
-    callHotline(CENTER_INFO.hotline);
+    runZaloAction(() => callHotline(centerInfo.hotline));
   }
 
   function handleChat() {
-    if (!CENTER_INFO.oaId) return;
-    openZaloChat(CENTER_INFO.oaId);
+    runZaloAction(() => openZaloChat(centerInfo.oaId));
   }
 
   function handleFollowOA() {
-    if (!CENTER_INFO.oaId) return;
-    followZaloOA(CENTER_INFO.oaId);
+    runZaloAction(() => followZaloOA(centerInfo.oaId));
   }
 
   return (
@@ -58,9 +75,9 @@ function AccountPage() {
             </div>
             <div>
               <Text className="text-white font-bold text-base leading-snug">
-                {CENTER_INFO.fullName}
+                {centerInfo.fullName}
               </Text>
-              <Text className="text-blue-200 text-sm mt-0.5">{CENTER_INFO.address}</Text>
+              <Text className="text-blue-200 text-sm mt-0.5">{centerInfo.address}</Text>
             </div>
           </div>
         </Box>
@@ -71,17 +88,17 @@ function AccountPage() {
             <SectionTitle>Liên hệ</SectionTitle>
           </div>
           <ActionRow
-            icon="zi-phone"
+            icon="zi-call"
             iconBg="bg-green-100"
             label="Gọi Hotline"
-            sublabel={CENTER_INFO.hotline}
+            sublabel={centerInfo.hotline}
             onClick={handleHotline}
           />
           <ActionRow
             icon="zi-chat"
             iconBg="bg-blue-100"
             label="Nhắn tin qua Zalo OA"
-            sublabel={CENTER_INFO.oaId ? "Trung tâm PVHCC" : "Chưa cấu hình OA"}
+            sublabel={centerInfo.oaId ? "Trung tâm PVHCC" : "Chưa cấu hình OA"}
             onClick={handleChat}
           />
           <ActionRow
@@ -98,13 +115,13 @@ function AccountPage() {
         <Box className="mx-4 bg-white rounded-2xl shadow-sm p-4 mb-4">
           <SectionTitle>Lịch làm việc</SectionTitle>
           <div className="space-y-2.5">
-            {CENTER_INFO.workingHours.map((wh, i) => (
+            {centerInfo.workingHours.map((wh, i) => (
               <div
                 key={i}
                 className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0"
               >
                 <div className="flex items-center gap-2">
-                  <Icon icon="zi-clock" className="text-blue-500" size={16} />
+                  <Icon icon="zi-clock-1" className="text-blue-500" size={16} />
                   <Text className="text-gray-700 text-sm font-medium">{wh.day}</Text>
                 </div>
                 <Text
@@ -129,7 +146,7 @@ function AccountPage() {
               <Icon icon="zi-location" className="text-red-500" size={20} />
             </div>
             <Text className="text-gray-700 text-base leading-relaxed flex-1">
-              {CENTER_INFO.address}
+              {centerInfo.address}
             </Text>
           </div>
         </Box>

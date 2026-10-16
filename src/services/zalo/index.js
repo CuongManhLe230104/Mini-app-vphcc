@@ -28,10 +28,9 @@ import {
 /** Lấy access token để backend xác minh */
 export async function getZaloAccessToken() {
   try {
-    const { accessToken } = await getAccessToken({});
-    return accessToken;
+    return await getAccessToken({});
   } catch (err) {
-    console.error("[zalo] getAccessToken failed", err);
+    console.error("[zalo] getAccessToken failed");
     throw err;
   }
 }
@@ -41,7 +40,7 @@ export async function getZaloUserInfo() {
   try {
     return await getUserInfo({});
   } catch (err) {
-    console.error("[zalo] getUserInfo failed", err);
+    console.error("[zalo] getUserInfo failed");
     throw err;
   }
 }
@@ -52,7 +51,7 @@ export async function getZaloPhoneNumber() {
     const { token } = await getPhoneNumber({});
     return token; // gửi token về backend để backend giải mã
   } catch (err) {
-    console.error("[zalo] getPhoneNumber failed", err);
+    console.error("[zalo] getPhoneNumber failed");
     throw err;
   }
 }
@@ -66,34 +65,40 @@ export async function requestPermission(permissions) {
       await authorize({ scopes: missing });
     }
   } catch (err) {
-    console.warn("[zalo] authorize failed or denied", err);
+    console.warn("[zalo] authorize failed or denied");
     throw err;
   }
 }
 
 /** Quan tâm OA — khi người dân chủ động bấm */
 export async function followZaloOA(oaId) {
+  if (!oaId) throw new Error("Kênh Zalo OA chưa được cấu hình");
   try {
     await followOA({ id: oaId });
   } catch (err) {
-    console.error("[zalo] followOA failed", err);
+    console.error("[zalo] followOA failed");
     throw err;
   }
 }
 
 /** Mở chat với OA chính thức */
-export function openZaloChat(oaId) {
-  openChat({ type: "oa", id: oaId });
+export async function openZaloChat(oaId) {
+  if (!oaId) throw new Error("Kênh Zalo OA chưa được cấu hình");
+  return openChat({ type: "oa", id: oaId });
 }
 
 /** Gọi điện hotline đã xác nhận */
-export function callHotline(phoneNumber) {
-  openPhone({ phoneNumber });
+export async function callHotline(phoneNumber) {
+  const normalized = String(phoneNumber ?? "").replace(/[\s().-]/g, "");
+  if (!/^\+?\d{8,15}$/.test(normalized)) throw new Error("Số hotline chưa được cấu hình chính thức");
+  phoneNumber = normalized;
+  return openPhone({ phoneNumber });
 }
 
 /** Mở webview cổng dịch vụ công chính thức */
-export function openServicePortal(url) {
-  openWebview({ url });
+export async function openServicePortal(url) {
+  if (!url || !/^https:\/\//i.test(url)) throw new Error("Đường dẫn dịch vụ chưa được cấu hình hợp lệ");
+  return openWebview({ url });
 }
 
 /** Chọn ảnh — tệp lưu qua backend riêng */
@@ -101,7 +106,7 @@ export async function pickMedia(config = {}) {
   try {
     return await openMediaPicker(config);
   } catch (err) {
-    console.error("[zalo] openMediaPicker failed", err);
+    console.error("[zalo] openMediaPicker failed");
     throw err;
   }
 }
