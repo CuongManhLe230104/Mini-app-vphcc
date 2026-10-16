@@ -1,5 +1,5 @@
-/** Gọi API tập trung; chỉ chứa URL công khai, không chứa khóa bí mật. */
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+/** Gọi API tập trung; đi qua Vite proxy ở dev và domain backend ở prod. */
+const BASE_URL = (import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(/\/$/, "");
 
 async function request(path, options = {}) {
   const { headers: customHeaders, ...requestOptions } = options;
