@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { Box, Header, Icon, Page, Text } from "zmp-ui";
 
-import { POSTS as MOCK_POSTS } from "../mocks/posts";
 import { api } from "../services/api";
 
 function formatDate(iso) {
@@ -31,14 +30,19 @@ function PostTypeBadge({ type }) {
 
 function PostDetailPage() {
   const { id } = useParams();
-  const mockPost = MOCK_POSTS.find((p) => p.id === id);
-  const [post, setPost] = useState(mockPost);
+  const [post, setPost] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!id) return;
+    let active = true;
+    setPost(null);
+    setError("");
+    setLoading(true);
+    if (!id) { setLoading(false); return; }
     api.get(`/posts/${id}`)
       .then((data) => {
-        if (data && data.title) {
+        if (active && data && data.title) {
           setPost({
             ...data,
             type: (data.type || "news").toLowerCase(),
@@ -46,7 +50,9 @@ function PostDetailPage() {
           });
         }
       })
-      .catch(() => {});
+      .catch((err) => { if (active) setError(err.status === 404 ? "Bài viết không còn được công khai hoặc không tồn tại." : "Không tải được bài viết. Vui lòng kiểm tra kết nối và mở lại trang."); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
   }, [id]);
 
   if (!post) {
@@ -55,7 +61,7 @@ function PostDetailPage() {
         <Header title="Chi tiết bài viết" />
         <Box className="flex flex-col items-center justify-center h-64 gap-3">
           <Icon icon="zi-search" className="text-gray-300" size={48} />
-          <Text className="text-gray-400">Không tìm thấy bài viết</Text>
+          <Text className="text-gray-400">{loading ? "Đang tải bài viết..." : error || "Không tìm thấy bài viết"}</Text>
         </Box>
       </Page>
     );

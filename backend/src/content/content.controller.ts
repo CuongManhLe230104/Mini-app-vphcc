@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param, Query, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Param, Query, Body, UseGuards } from '@nestjs/common';
 import { ContentService } from './content.service';
 import { QueryPostsDto } from './dto/query-posts.dto';
 import { RejectPostDto } from './dto/reject-post.dto';
@@ -55,6 +55,14 @@ export class ContentController {
   @Roles(AdminRole.SUPER_ADMIN, AdminRole.REVIEWER)
   async publish(@Param('id') id: string, @CurrentUser() user: any) {
     return this.contentService.publishPost(id, user.id);
+  }
+
+  /** Xóa mềm: chỉ quản trị viên/người duyệt được gỡ bài. */
+  @Delete('admin/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(AdminRole.SUPER_ADMIN, AdminRole.REVIEWER)
+  async remove(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.contentService.archivePost(id, user.id);
   }
 
   /** Admin: Từ chối bài viết */

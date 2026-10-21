@@ -68,7 +68,7 @@ export class ContentService {
     const limit = query.limit || 20;
     const skip = (page - 1) * limit;
 
-    const where: Prisma.PostWhereInput = {};
+    const where: Prisma.PostWhereInput = { status: { not: PostStatus.ARCHIVED } };
     if (query.status) where.status = query.status;
     if (query.type) where.type = query.type;
     if (query.search) {
@@ -138,6 +138,25 @@ export class ContentService {
         publishedAt: new Date(),
         rejectionNote: null,
       },
+    });
+  }
+
+  /** Giữ dữ liệu và ghi nhật ký trong cùng transaction; gọi lại không tạo thêm log. */
+  async archivePost(id: string, adminId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const post = await tx.post.findUnique({ where: { id } });
+      if (!post) throw new NotFoundException('Không tìm thấy bài viết');
+      if (post.status === PostStatus.ARCHIVED) return { id, status: PostStatus.ARCHIVED };
+      const result = await tx.post.updateMany({
+        where: { id, status: post.status },
+        data: { status: PostStatus.ARCHIVED, isHighlighted: false },
+      });
+      if (!result.count) throw new BadRequestException('Bài viết vừa thay đổi, vui lòng tải lại và thử lại');
+      await tx.auditLog.create({ data: {
+        adminId, action: 'POST_ARCHIVE', resource: 'post:' + id,
+        detail: { fromStatus: post.status, toStatus: PostStatus.ARCHIVED },
+      } });
+      return { id, status: PostStatus.ARCHIVED };
     });
   }
 
