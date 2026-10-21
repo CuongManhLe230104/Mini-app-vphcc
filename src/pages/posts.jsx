@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Box, Header, Icon, Input, Page, Text } from "zmp-ui";
 
-import { POST_TYPES, POSTS as MOCK_POSTS } from "../mocks/posts";
+import { POST_TYPES } from "../mocks/posts";
 import { api } from "../services/api";
 
 function formatDate(iso) {
@@ -32,12 +32,15 @@ function PostsPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [activeType, setActiveType] = useState("all");
-  const [posts, setPosts] = useState(MOCK_POSTS);
+  const [posts, setPosts] = useState([]);
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     api.get("/posts?limit=50")
       .then((res) => {
-        if (res && Array.isArray(res.data) && res.data.length > 0) {
+        if (res && Array.isArray(res.data)) {
           const mapped = res.data.map((p) => ({
             ...p,
             type: (p.type || "news").toLowerCase(),
@@ -45,7 +48,8 @@ function PostsPage() {
           setPosts(mapped);
         }
       })
-      .catch(() => {});
+      .catch(() => setError("Không tải được tin tức. Vui lòng kiểm tra kết nối và mở lại trang."))
+      .finally(() => setLoading(false));
   }, []);
 
   const filtered = posts.filter((p) => {
@@ -94,7 +98,9 @@ function PostsPage() {
         </div>
 
         {/* Danh sách bài viết */}
-        {filtered.length === 0 ? (
+        {loading || error ? (
+          <Box className="mx-4 bg-white rounded-xl p-4" role="status">{loading ? "Đang tải tin tức..." : error}</Box>
+        ) : filtered.length === 0 ? (
           <Box className="mx-4 bg-white rounded-xl p-8 text-center">
             <Icon icon="zi-search" className="text-gray-300 mb-2" size={40} />
             <Text className="text-gray-400 text-sm">

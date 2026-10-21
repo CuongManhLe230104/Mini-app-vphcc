@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { Box, Button, Header, Icon, Page, Text } from "zmp-ui";
 
 import { CENTER_INFO as MOCK_CENTER } from "../mocks/center";
-import { POSTS as MOCK_POSTS } from "../mocks/posts";
 import { api } from "../services/api";
 import { callHotline, followZaloOA, openServicePortal } from "../services/zalo";
 import Logo from "../components/logo";
@@ -78,7 +77,10 @@ function HomePage() {
   const navigate = useNavigate();
   const runZaloAction = useZaloAction();
   const [centerInfo, setCenterInfo] = useState(MOCK_CENTER);
-  const [posts, setPosts] = useState(MOCK_POSTS);
+  const [posts, setPosts] = useState([]);
+
+  const [postsLoading, setPostsLoading] = useState(true);
+  const [postsError, setPostsError] = useState("");
 
   useEffect(() => {
     // Tải thông tin trung tâm từ backend
@@ -91,7 +93,7 @@ function HomePage() {
     // Tải tin tức từ backend
     api.get("/posts?limit=3")
       .then((res) => {
-        if (res && Array.isArray(res.data) && res.data.length > 0) {
+        if (res && Array.isArray(res.data)) {
           // Map kiểu dữ liệu từ backend sang format hiển thị
           const mapped = res.data.map((p) => ({
             ...p,
@@ -100,7 +102,8 @@ function HomePage() {
           setPosts(mapped);
         }
       })
-      .catch(() => {});
+      .catch(() => setPostsError("Không tải được tin tức. Vui lòng kiểm tra kết nối và mở lại trang."))
+      .finally(() => setPostsLoading(false));
   }, []);
 
   const highlighted = posts.filter((p) => p.isHighlighted).slice(0, 3);
@@ -178,7 +181,9 @@ function HomePage() {
             </button>
           </div>
 
-          {highlighted.length === 0 ? (
+          {postsLoading || postsError ? (
+            <Box className="bg-white rounded-xl p-4" role="status">{postsLoading ? "Đang tải tin tức..." : postsError}</Box>
+          ) : highlighted.length === 0 ? (
             <Box className="bg-white rounded-xl p-4 text-center">
               <Text className="text-gray-400 text-sm">Chưa có tin tức</Text>
             </Box>

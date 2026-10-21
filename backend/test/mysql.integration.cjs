@@ -27,6 +27,7 @@ test('HTTP workflows run correctly against MySQL', { timeout: 60000 }, async t =
       if (ids.notice) await db.notice.deleteMany({ where: { id: ids.notice } });
       if (ids.procedure) await db.procedure.deleteMany({ where: { id: ids.procedure } });
       if (ids.field) await db.procedureField.deleteMany({ where: { id: ids.field } });
+      if (ids.admin) await db.auditLog.deleteMany({ where: { adminId: ids.admin } });
       if (ids.admin) await db.admin.deleteMany({ where: { id: ids.admin } });
     } finally { await app.close(); }
   });
@@ -73,6 +74,26 @@ test('HTTP workflows run correctly against MySQL', { timeout: 60000 }, async t =
     assert.equal(found.status, 200);
     assert.ok(found.data.data.some(p => p.id === ids.post));
     assert.equal((await request('POST', '/posts/admin/' + ids.post + '/reject', { note: 'test' }, true)).status, 400);
+  });
+
+  await t.test('archive requires permission, hides public content and retains audited data', async () => {
+    const path = '/posts/admin/' + ids.post;
+    assert.equal((await request('DELETE', path)).status, 401);
+    await db.admin.update({ where: { id: ids.admin }, data: { role: 'EDITOR' } });
+    assert.equal((await request('DELETE', path, undefined, true)).status, 403);
+    await db.admin.update({ where: { id: ids.admin }, data: { role: 'REVIEWER' } });
+    assert.equal((await request('DELETE', path, undefined, true)).status, 200);
+    assert.equal((await request('GET', '/posts/' + ids.post)).status, 404);
+    assert.equal((await request('GET', '/posts?search=' + runId)).data.total, 0);
+    assert.equal((await request('GET', '/posts/admin/all?search=' + runId, undefined, true)).data.total, 0);
+    assert.equal((await request('GET', '/posts/admin/all?status=ARCHIVED&search=' + runId, undefined, true)).data.total, 1);
+    const saved = await db.post.findUnique({ where: { id: ids.post } });
+    assert.equal(saved.status, 'ARCHIVED');
+    assert.ok(saved.content);
+    assert.equal((await request('DELETE', path, undefined, true)).status, 200);
+    assert.equal(await db.auditLog.count({ where: { adminId: ids.admin, action: 'POST_ARCHIVE' } }), 1);
+    await db.admin.update({ where: { id: ids.admin }, data: { role: 'SUPER_ADMIN' } });
+    assert.equal((await request('DELETE', '/posts/admin/missing-test-post', undefined, true)).status, 404);
   });
 
   await t.test('invalid parameters fail with 400 before querying MySQL', async () => {
