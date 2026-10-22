@@ -1,4 +1,6 @@
-import { Controller, Get, Post, Delete, Param, Query, Body, UseGuards } from '@nestjs/common';
+import { PostVersionDto } from './dto/post-version.dto';
+import { UpdatePostDto } from './dto/update-post.dto';
+import { Controller, Get, Post, Delete, Patch, Param, Query, Body, UseGuards } from '@nestjs/common';
 import { ContentService } from './content.service';
 import { QueryPostsDto } from './dto/query-posts.dto';
 import { RejectPostDto } from './dto/reject-post.dto';
@@ -41,20 +43,27 @@ export class ContentController {
     return this.contentService.createDraft(dto, user.id);
   }
 
+  @Patch('admin/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(AdminRole.SUPER_ADMIN, AdminRole.EDITOR)
+  update(@Param('id') id: string, @Body() dto: UpdatePostDto, @CurrentUser() user: any) {
+    return this.contentService.updatePost(id, dto, user.id, user.role);
+  }
+
   /** Admin: Gửi duyệt */
   @Post('admin/:id/submit')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(AdminRole.SUPER_ADMIN, AdminRole.EDITOR)
-  async submitForReview(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.contentService.submitForReview(id, user.id);
+  async submitForReview(@Param('id') id: string, @CurrentUser() user: any, @Body() dto: PostVersionDto) {
+    return this.contentService.submitForReview(id, user.id, user.role, dto.version);
   }
 
   /** Admin: Xuất bản bài viết */
   @Post('admin/:id/publish')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(AdminRole.SUPER_ADMIN, AdminRole.REVIEWER)
-  async publish(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.contentService.publishPost(id, user.id);
+  async publish(@Param('id') id: string, @CurrentUser() user: any, @Body() dto: PostVersionDto) {
+    return this.contentService.publishPost(id, user.id, dto.version);
   }
 
   /** Xóa mềm: chỉ quản trị viên/người duyệt được gỡ bài. */
@@ -70,7 +79,7 @@ export class ContentController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(AdminRole.SUPER_ADMIN, AdminRole.REVIEWER)
   async reject(@Param('id') id: string, @CurrentUser() user: any, @Body() dto: RejectPostDto) {
-    return this.contentService.rejectPost(id, user.id, dto.note);
+    return this.contentService.rejectPost(id, user.id, dto.note, dto.version);
   }
 }
 

@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useApiResource } from "../components/use-api-resource";
+import RemoteState, { Pagination } from "../components/remote-state";
 import { useParams } from "react-router-dom";
 import { Box, Header, Icon, Page, Text } from "zmp-ui";
 
-import { api } from "../services/api";
 
 function formatDate(iso) {
   const d = new Date(iso);
@@ -30,45 +30,12 @@ function PostTypeBadge({ type }) {
 
 function PostDetailPage() {
   const { id } = useParams();
-  const [post, setPost] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let active = true;
-    setPost(null);
-    setError("");
-    setLoading(true);
-    if (!id) { setLoading(false); return; }
-    api.get(`/posts/${id}`)
-      .then((data) => {
-        if (active && data && data.title) {
-          setPost({
-            ...data,
-            type: (data.type || "news").toLowerCase(),
-            tags: Array.isArray(data.tags) ? data.tags : [],
-          });
-        }
-      })
-      .catch((err) => { if (active) setError(err.status === 404 ? "Bài viết không còn được công khai hoặc không tồn tại." : "Không tải được bài viết. Vui lòng kiểm tra kết nối và mở lại trang."); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [id]);
-
-  if (!post) {
-    return (
-      <Page className="bg-gray-50">
-        <Header title="Chi tiết bài viết" />
-        <Box className="flex flex-col items-center justify-center h-64 gap-3">
-          <Icon icon="zi-search" className="text-gray-300" size={48} />
-          <Text className="text-gray-400">{loading ? "Đang tải bài viết..." : error || "Không tìm thấy bài viết"}</Text>
-        </Box>
-      </Page>
-    );
-  }
+  const resource = useApiResource(`/posts/${encodeURIComponent(id)}`);
+  const post = resource.data && { ...resource.data, type: resource.data.type.toLowerCase(), tags: resource.data.tags || [] };
+  if (!post) return <Page className="bg-gray-50 page-with-header"><Header title="Chi tiết bài viết" /><RemoteState {...resource} empty /></Page>;
 
   return (
-    <Page className="bg-gray-50">
+    <Page className="bg-gray-50 page-with-header">
       <Header title="Tin tức & Hướng dẫn" />
 
       <div className="pb-8">

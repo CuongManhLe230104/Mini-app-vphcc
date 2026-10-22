@@ -1,3 +1,4 @@
+import { Req } from '@nestjs/common';
 import { Controller, Get, Patch, Body, UseGuards } from '@nestjs/common';
 import { CenterService } from './center.service';
 import { UpdateCenterDto } from './dto/update-center.dto';
@@ -20,8 +21,8 @@ export class CenterController {
   @Patch()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(AdminRole.SUPER_ADMIN)
-  async updateCenter(@Body() dto: UpdateCenterDto) {
-    return this.centerService.updateCenterInfo(dto);
+  async updateCenter(@Req() req: any, @Body() dto: UpdateCenterDto) {
+    return this.centerService.updateCenterInfo(dto, req.user.id);
   }
 }
 

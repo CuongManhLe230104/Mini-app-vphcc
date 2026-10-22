@@ -1,153 +1,26 @@
-import { useState, useEffect } from "react";
-import { Box, Header, Icon, Page, Text } from "zmp-ui";
-
-import { NOTICES as MOCK_NOTICES } from "../mocks/notices";
-import { api } from "../services/api";
-
-function formatDate(dateStr) {
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("vi-VN", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
+import { useApiResource } from "../components/use-api-resource";
+import RemoteState, { Pagination } from "../components/remote-state";
+import { useState } from "react";
+import { Header, Page } from "zmp-ui";
+import { openServicePortal } from "../services/zalo";
+import { useZaloAction } from "../components/use-zalo-action";
+export default function NoticesPage() {
+  const [page, setPage] = useState(1);
+  const resource = useApiResource("/notices?includeArchived=true&limit=20&page=" + page);
+  const notices = resource.data?.data || [];
+  const run = useZaloAction();
+  const date = value => new Date(value).toLocaleDateString("vi-VN");
+  return <Page className="bg-gray-50 page-with-header"><Header title="Niêm yết công khai" showBackIcon={false} />
+    <div className="pb-24 pt-2">
+      <RemoteState {...resource} empty={!notices.length} />
+      {notices.map(n => <article key={n.id} className="m-4 p-4 bg-white rounded-xl shadow-sm">
+        <span className={n.isActive ? "text-green-700" : "text-gray-500"}>{n.isActive ? "Đang niêm yết" : "Đã hết hạn"}</span>
+        <h2 className="font-semibold text-lg mt-2">{n.title}</h2>
+        <p className="my-2 whitespace-pre-wrap">{n.description}</p>
+        <p className="text-gray-500">{date(n.startDate)} – {date(n.endDate)}</p>
+        {(n.documents || []).map(doc => <button key={doc.id} className="block text-blue-600 text-left py-3" onClick={() => run(() => openServicePortal(doc.fileUrl))}>{doc.name}</button>)}
+      </article>)}
+      <Pagination page={page} totalPages={resource.data?.meta?.totalPages} onChange={setPage} disabled={resource.loading} />
+    </div>
+  </Page>;
 }
-
-function StatusBadge({ isActive }) {
-  return isActive ? (
-    <span className="bg-green-100 text-green-700 text-xs px-2.5 py-1 rounded-full font-medium">
-      Đang niêm yết
-    </span>
-  ) : (
-    <span className="bg-gray-100 text-gray-500 text-xs px-2.5 py-1 rounded-full font-medium">
-      Đã hết hạn
-    </span>
-  );
-}
-
-function NoticesPage() {
-  const [notices, setNotices] = useState(MOCK_NOTICES);
-
-  useEffect(() => {
-    api.get("/notices?includeArchived=true")
-      .then((data) => {
-        if (Array.isArray(data) && data.length > 0) {
-          const mapped = data.map((n) => ({
-            id: n.id,
-            title: n.title,
-            description: n.description,
-            startDate: n.startDate,
-            endDate: n.endDate,
-            isActive: Boolean(n.isActive),
-            documents: Array.isArray(n.documents)
-              ? n.documents.map((d) => ({ name: d.name, url: d.fileUrl }))
-              : [],
-          }));
-          setNotices(mapped);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  const active = notices.filter((n) => n.isActive);
-  const expired = notices.filter((n) => !n.isActive);
-
-  return (
-    <Page className="bg-gray-50">
-      <Header title="Niêm yết công khai" showBackIcon={false} />
-
-      <div className="pb-24 pt-2">
-        {/* Đang niêm yết */}
-        {active.length > 0 && (
-          <Box className="mx-4 mb-4">
-            <Text className="text-gray-800 font-semibold text-base mb-3">
-              Đang niêm yết ({active.length})
-            </Text>
-            <div className="space-y-2.5">
-              {active.map((n) => (
-                <div
-                  key={n.id}
-                  className="bg-white rounded-xl p-4 shadow-sm border-l-4 border-green-500"
-                >
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <Text className="text-gray-800 font-semibold text-base leading-snug flex-1">
-                      {n.title}
-                    </Text>
-                    <StatusBadge isActive={n.isActive} />
-                  </div>
-                  <Text className="text-gray-500 text-sm leading-relaxed mb-3">
-                    {n.description}
-                  </Text>
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-1">
-                      <Icon icon="zi-clock-1" className="text-gray-400" size={13} />
-                      <Text className="text-gray-400 text-xs">
-                        {formatDate(n.startDate)} – {formatDate(n.endDate)}
-                      </Text>
-                    </div>
-                  </div>
-                  {n.documents.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-gray-100">
-                      {n.documents.map((doc, i) => (
-                        <div key={i} className="flex items-center gap-2">
-                          <Icon icon="zi-file" className="text-blue-500" size={16} />
-                          <Text className="text-blue-600 text-sm">{doc.name}</Text>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </Box>
-        )}
-
-        {/* Đã hết hạn */}
-        {expired.length > 0 && (
-          <Box className="mx-4 mb-4">
-            <Text className="text-gray-500 font-semibold text-base mb-3">
-              Đã hết hạn ({expired.length})
-            </Text>
-            <div className="space-y-2">
-              {expired.map((n) => (
-                <div
-                  key={n.id}
-                  className="bg-white rounded-xl p-4 shadow-sm opacity-70 border-l-4 border-gray-300"
-                >
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <Text className="text-gray-600 font-medium text-sm leading-snug flex-1">
-                      {n.title}
-                    </Text>
-                    <StatusBadge isActive={n.isActive} />
-                  </div>
-                  <div className="flex items-center gap-1 mt-1">
-                    <Icon icon="zi-clock-1" className="text-gray-400" size={13} />
-                    <Text className="text-gray-400 text-xs">
-                      {formatDate(n.startDate)} – {formatDate(n.endDate)}
-                    </Text>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Box>
-        )}
-
-        {NOTICES.length === 0 && (
-          <Box className="mx-4 bg-white rounded-xl p-8 text-center">
-            <Icon icon="zi-file" className="text-gray-300 mb-2" size={40} />
-            <Text className="text-gray-400 text-sm">Chưa có nội dung niêm yết</Text>
-          </Box>
-        )}
-
-        <Box className="mx-4 mt-2 p-3 bg-yellow-50 rounded-xl border border-yellow-200">
-          <Text className="text-yellow-700 text-xs text-center">
-            ⚠️ Dữ liệu mẫu — chưa qua quy trình duyệt chính thức
-          </Text>
-        </Box>
-      </div>
-    </Page>
-  );
-}
-
-export default NoticesPage;
-

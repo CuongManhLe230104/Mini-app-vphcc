@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useApiResource } from "../components/use-api-resource";
+import RemoteState, { Pagination } from "../components/remote-state";
 import { useNavigate, useParams } from "react-router-dom";
 import { Box, Header, Icon, Page, Text } from "zmp-ui";
 
-import { PROCEDURES as MOCK_PROCEDURES } from "../mocks/procedures";
-import { api } from "../services/api";
+import { openServicePortal } from "../services/zalo";
+import { useZaloAction } from "../components/use-zalo-action";
 
 function InfoRow({ icon, label, value }) {
   return (
@@ -22,45 +23,13 @@ function InfoRow({ icon, label, value }) {
 function ProcedureDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const mockProc = MOCK_PROCEDURES.find((p) => p.id === id);
-  const [proc, setProc] = useState(mockProc);
-
-  useEffect(() => {
-    if (!id) return;
-    api.get(`/procedures/${id}`)
-      .then((data) => {
-        if (data && data.name) {
-          setProc({
-            id: data.id,
-            code: data.code,
-            name: data.name,
-            authority: data.authority,
-            deadline: data.deadline,
-            fee: data.fee,
-            components: Array.isArray(data.components) ? data.components : [],
-            submission: data.submission,
-            sourceUrl: data.sourceUrl,
-            reviewDate: data.reviewDate ? new Date(data.reviewDate).toLocaleDateString("vi-VN") : null,
-          });
-        }
-      })
-      .catch(() => {});
-  }, [id]);
-
-  if (!proc) {
-    return (
-      <Page className="bg-gray-50">
-        <Header title="Chi tiết thủ tục" />
-        <Box className="flex flex-col items-center justify-center h-64 gap-3">
-          <Icon icon="zi-search" className="text-gray-300" size={48} />
-          <Text className="text-gray-400">Không tìm thấy thủ tục</Text>
-        </Box>
-      </Page>
-    );
-  }
+  const resource = useApiResource(`/procedures/${encodeURIComponent(id)}`);
+  const proc = resource.data;
+  const runZaloAction = useZaloAction();
+  if (!proc) return <Page className="bg-gray-50 page-with-header"><Header title="Chi tiết thủ tục" /><RemoteState {...resource} empty /></Page>;
 
   return (
-    <Page className="bg-gray-50">
+    <Page className="bg-gray-50 page-with-header">
       <Header title="Chi tiết thủ tục" />
 
       <div className="pb-8 pt-2">
@@ -97,7 +66,7 @@ function ProcedureDetailPage() {
             Thành phần hồ sơ
           </Text>
           <div className="space-y-2.5">
-            {proc.components.map((comp, idx) => (
+            {(Array.isArray(proc.components) ? proc.components : []).map((comp, idx) => (
               <div key={idx} className="flex items-start gap-2.5">
                 <div className="w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
                   <Text className="text-white text-xs font-bold">{idx + 1}</Text>
@@ -121,16 +90,10 @@ function ProcedureDetailPage() {
         </Box>
 
         {/* Thông tin nguồn */}
-        <Box className="mx-4 bg-yellow-50 rounded-xl border border-yellow-200 p-3 mb-3">
-          <Text className="text-yellow-800 text-xs leading-relaxed">
-            ⚠️ Dữ liệu mẫu — chưa đồng bộ nguồn chính thức. Vui lòng liên hệ
-            trực tiếp để xác nhận thông tin trước khi thực hiện thủ tục.
-          </Text>
-          {proc.reviewDate && (
-            <Text className="text-yellow-600 text-xs mt-1">
-              Ngày rà soát mẫu: {proc.reviewDate}
-            </Text>
-          )}
+        <Box className="mx-4 bg-white rounded-xl p-4 mb-3">
+          {(!proc.sourceUrl || !proc.reviewDate) && <Text className="text-amber-800 mb-2">Thông tin chưa có đủ nguồn hoặc ngày rà soát. Vui lòng xác nhận với trung tâm trước khi thực hiện.</Text>}
+          {proc.sourceUrl && <button className="text-blue-600 py-3" onClick={() => runZaloAction(() => openServicePortal(proc.sourceUrl))}>Xem nguồn thông tin</button>}
+          {proc.reviewDate && <Text>Ngày rà soát: {new Date(proc.reviewDate).toLocaleDateString("vi-VN")}</Text>}
         </Box>
       </div>
     </Page>

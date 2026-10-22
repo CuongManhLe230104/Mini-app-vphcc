@@ -1,3 +1,4 @@
+import { auditedWrite } from '../audit/audited-write';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
@@ -17,12 +18,12 @@ export class ProceduresService {
   }
 
   /** Lấy danh sách thủ tục (phân trang, lọc theo lĩnh vực, tìm kiếm) */
-  async findAll(query: QueryProceduresDto) {
+  async findAll(query: QueryProceduresDto, admin = false) {
     const page = query.page || 1;
     const limit = query.limit || 20;
     const skip = (page - 1) * limit;
 
-    const where: Prisma.ProcedureWhereInput = { isValid: true };
+    const where: Prisma.ProcedureWhereInput = admin ? {} : { isValid: true };
 
     if (query.field && query.field !== 'all') {
       where.field = { slug: query.field };
@@ -56,9 +57,9 @@ export class ProceduresService {
   }
 
   /** Lấy chi tiết thủ tục */
-  async findOne(id: string) {
+  async findOne(id: string, admin = false) {
     const proc = await this.prisma.procedure.findFirst({
-      where: { id, isValid: true },
+      where: { id, ...(admin ? {} : { isValid: true }) },
       include: { field: true },
     });
     if (!proc) {
@@ -68,28 +69,28 @@ export class ProceduresService {
   }
 
   /** Tạo thủ tục mới (Admin) */
-  async create(dto: CreateProcedureDto) {
-    return this.prisma.procedure.create({
+  async create(dto: CreateProcedureDto, adminId?: string) {
+    return auditedWrite(this.prisma, adminId, 'PROCEDURE_CREATE', 'procedure', tx => tx.procedure.create({
       data: dto as any,
-    });
+    }));
   }
 
   /** Cập nhật thủ tục (Admin) */
-  async update(id: string, dto: UpdateProcedureDto) {
-    await this.findOne(id);
-    return this.prisma.procedure.update({
+  async update(id: string, dto: UpdateProcedureDto, adminId?: string) {
+    await this.findOne(id, true);
+    return auditedWrite(this.prisma, adminId, 'PROCEDURE_UPDATE', 'procedure:' + id, tx => tx.procedure.update({
       where: { id },
       data: dto as any,
-    });
+    }));
   }
 
   /** Xoá mềm thủ tục */
-  async remove(id: string) {
-    await this.findOne(id);
-    return this.prisma.procedure.update({
+  async remove(id: string, adminId?: string) {
+    await this.findOne(id, true);
+    return auditedWrite(this.prisma, adminId, 'PROCEDURE_HIDE', 'procedure:' + id, tx => tx.procedure.update({
       where: { id },
       data: { isValid: false },
-    });
+    }));
   }
 }
 

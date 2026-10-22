@@ -1,3 +1,4 @@
+import { auditedWrite } from '../audit/audited-write';
 import {
   Injectable,
   NotFoundException,
@@ -17,15 +18,15 @@ export class NoticesService {
    * Danh sách niêm yết — mặc định chỉ lấy đang có hiệu lực.
    * isActive tính theo ngày hiện tại, không phụ thuộc DB flag.
    */
-  async findAll(query: QueryNoticesDto) {
+  async findAll(query: QueryNoticesDto, admin = false) {
     const { page = 1, limit = 20, includeArchived, search } = query;
     const skip = (page - 1) * limit;
     const now = new Date();
 
-    const where: Prisma.NoticeWhereInput = { startDate: { lte: now } };
+    const where: Prisma.NoticeWhereInput = admin ? {} : { startDate: { lte: now } };
 
     // Chỉ lấy niêm yết đang hiệu lực nếu không yêu cầu lưu trữ
-    if (!includeArchived) {
+    if (!admin && !includeArchived) {
       where.startDate = { lte: now };
       where.endDate = { gte: now };
     }
@@ -87,7 +88,7 @@ export class NoticesService {
   }
 
   /** Tạo niêm yết — chỉ EDITOR trở lên */
-  async create(dto: CreateNoticeDto) {
+  async create(dto: CreateNoticeDto, adminId?: string) {
     const startDate = new Date(dto.startDate);
     const endDate = new Date(dto.endDate);
 
@@ -98,7 +99,7 @@ export class NoticesService {
     const now = new Date();
     const isActive = now >= startDate && now <= endDate;
 
-    return this.prisma.notice.create({
+    return auditedWrite(this.prisma, adminId, 'NOTICE_CREATE', 'notice', tx => tx.notice.create({
       data: {
         title: dto.title,
         description: dto.description,
@@ -117,14 +118,16 @@ export class NoticesService {
           : undefined,
       },
       include: { documents: true },
-    });
+    }));
   }
 
   /** Cập nhật niêm yết */
-  async update(id: string, dto: UpdateNoticeDto) {
+  async update(id: string, dto: UpdateNoticeDto, adminId?: string) {
     await this.findOne(id, true); // Đảm bảo tồn tại
 
-    const updateData: Prisma.NoticeUpdateInput = { ...dto };
+    const { documents, ...fields } = dto;
+    const updateData: Prisma.NoticeUpdateInput = { ...fields };
+    if (documents) updateData.documents = { deleteMany: {}, create: documents };
 
     if (dto.startDate) updateData.startDate = new Date(dto.startDate);
     if (dto.endDate) updateData.endDate = new Date(dto.endDate);
@@ -144,21 +147,22 @@ export class NoticesService {
     const now = new Date();
     updateData.isActive = now >= startDate && now <= endDate;
 
-    return this.prisma.notice.update({
+    return auditedWrite(this.prisma, adminId, 'NOTICE_UPDATE', 'notice:' + id, tx => tx.notice.update({
       where: { id },
       data: updateData,
       include: { documents: true },
-    });
+    }));
   }
 
   /** Thêm tài liệu vào niêm yết */
   async addDocument(
     noticeId: string,
     doc: { name: string; fileUrl: string; fileSize?: number; mimeType?: string },
+    adminId?: string,
   ) {
     await this.findOne(noticeId, true); // Đảm bảo niêm yết tồn tại
 
-    return this.prisma.noticeDocument.create({
+    return auditedWrite(this.prisma, adminId, 'NOTICE_DOCUMENT_ADD', 'notice:' + noticeId, tx => tx.noticeDocument.create({
       data: {
         noticeId,
         name: doc.name,
@@ -166,11 +170,11 @@ export class NoticesService {
         fileSize: doc.fileSize,
         mimeType: doc.mimeType,
       },
-    });
+    }));
   }
 
   /** Xoá tài liệu khỏi niêm yết */
-  async removeDocument(noticeId: string, docId: string) {
+  async removeDocument(noticeId: string, docId: string, adminId?: string) {
     // Kiểm tra tài liệu thuộc đúng niêm yết
     const document = await this.prisma.noticeDocument.findFirst({
       where: { id: docId, noticeId },
@@ -180,7 +184,7 @@ export class NoticesService {
       throw new NotFoundException('Không tìm thấy tài liệu trong niêm yết này');
     }
 
-    await this.prisma.noticeDocument.delete({ where: { id: docId } });
+    await auditedWrite(this.prisma, adminId, 'NOTICE_DOCUMENT_DELETE', 'notice:' + noticeId, tx => tx.noticeDocument.delete({ where: { id: docId } }));
     return { deleted: true };
   }
 }

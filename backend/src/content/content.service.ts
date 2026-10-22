@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { UpdatePostDto } from './dto/update-post.dto';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { QueryPostsDto } from './dto/query-posts.dto';
-import { PostStatus, Prisma } from '@prisma/client';
+import { AdminRole, PostStatus, Prisma } from '@prisma/client';
 
 @Injectable()
 export class ContentService {
@@ -69,13 +70,16 @@ export class ContentService {
     const skip = (page - 1) * limit;
 
     const where: Prisma.PostWhereInput = { status: { not: PostStatus.ARCHIVED } };
-    if (query.status) where.status = query.status;
+    if (query.status) {
+      where.OR = [{ status: query.status }, { status: PostStatus.PUBLISHED, revisionStatus: query.status }];
+      delete where.status;
+    }
     if (query.type) where.type = query.type;
     if (query.search) {
-      where.OR = [
+      where.AND = [{ OR: [
         { title: { contains: query.search } },
         { summary: { contains: query.search } },
-      ];
+      ] }];
     }
 
     const [data, total] = await Promise.all([
@@ -95,87 +99,90 @@ export class ContentService {
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  /** Admin: Tạo nháp bài viết */
-  async createDraft(dto: CreatePostDto, authorId: string) {
-    return this.prisma.post.create({
-      data: {
-        ...dto,
-        tags: dto.tags ?? [],
-        status: PostStatus.DRAFT,
-        authorId,
-      },
-    });
-  }
 
-  /** Admin: Gửi duyệt */
-  async submitForReview(id: string, authorId: string) {
-    const post = await this.prisma.post.findUnique({ where: { id } });
-    if (!post) throw new NotFoundException('Không tìm thấy bài viết');
-    if (post.authorId !== authorId) throw new ForbiddenException('Chỉ tác giả mới được gửi duyệt');
-    if (post.status !== PostStatus.DRAFT && post.status !== PostStatus.REJECTED) {
-      throw new BadRequestException('Chỉ bài viết ở trạng thái Nháp hoặc Từ chối mới được gửi duyệt');
-    }
-
-    return this.prisma.post.update({
-      where: { id },
-      data: { status: PostStatus.PENDING, rejectionNote: null, reviewerId: null },
-    });
-  }
-
-  /** Admin: Duyệt bài viết (PUBLISH) */
-  async publishPost(id: string, reviewerId: string) {
-    const post = await this.prisma.post.findUnique({ where: { id } });
-    if (!post) throw new NotFoundException('Không tìm thấy bài viết');
-    if (post.status !== PostStatus.PENDING) {
-      throw new BadRequestException('Chỉ bài viết đang Chờ duyệt mới được công khai');
-    }
-
-    return this.prisma.post.update({
-      where: { id },
-      data: {
-        status: PostStatus.PUBLISHED,
-        reviewerId,
-        publishedAt: new Date(),
-        rejectionNote: null,
-      },
-    });
-  }
-
-  /** Giữ dữ liệu và ghi nhật ký trong cùng transaction; gọi lại không tạo thêm log. */
-  async archivePost(id: string, adminId: string) {
+  private async change(id: string, actorId: string, action: string, version: number | undefined,
+    build: (post: any) => Prisma.PostUncheckedUpdateManyInput) {
     return this.prisma.$transaction(async (tx) => {
       const post = await tx.post.findUnique({ where: { id } });
       if (!post) throw new NotFoundException('Không tìm thấy bài viết');
-      if (post.status === PostStatus.ARCHIVED) return { id, status: PostStatus.ARCHIVED };
-      const result = await tx.post.updateMany({
-        where: { id, status: post.status },
-        data: { status: PostStatus.ARCHIVED, isHighlighted: false },
-      });
-      if (!result.count) throw new BadRequestException('Bài viết vừa thay đổi, vui lòng tải lại và thử lại');
-      await tx.auditLog.create({ data: {
-        adminId, action: 'POST_ARCHIVE', resource: 'post:' + id,
-        detail: { fromStatus: post.status, toStatus: PostStatus.ARCHIVED },
-      } });
-      return { id, status: PostStatus.ARCHIVED };
+      if (version !== undefined && version !== post.version) throw new ConflictException('Bài đã thay đổi. Tải lại danh sách trước khi thao tác.');
+      const data = build(post);
+      const changed = await tx.post.updateMany({ where: { id, version: post.version }, data: { ...data, version: { increment: 1 } } });
+      if (!changed.count) throw new ConflictException('Bài vừa được người khác cập nhật. Vui lòng tải lại.');
+      await tx.auditLog.create({ data: { adminId: actorId, action, resource: 'post:' + id,
+        detail: { fromStatus: post.status, version: post.version + 1 } } });
+      return tx.post.findUnique({ where: { id } });
     });
   }
 
-  /** Admin: Từ chối bài viết */
-  async rejectPost(id: string, reviewerId: string, note?: string) {
-    const post = await this.prisma.post.findUnique({ where: { id } });
-    if (!post) throw new NotFoundException('Không tìm thấy bài viết');
-    if (post.status !== PostStatus.PENDING) {
-      throw new BadRequestException('Chỉ bài viết đang Chờ duyệt mới được từ chối');
-    }
+  private assertAuthor(post: any, actorId: string, role?: AdminRole) {
+    const owner = post.revision ? post.revisionAuthorId : post.authorId;
+    if (role !== AdminRole.SUPER_ADMIN && owner !== actorId) throw new ForbiddenException('Chỉ người soạn hoặc quản trị viên được sửa/gửi duyệt bài này');
+  }
 
-    return this.prisma.post.update({
-      where: { id },
-      data: {
-        status: PostStatus.REJECTED,
-        reviewerId,
-        rejectionNote: note,
-      },
+  async createDraft(dto: CreatePostDto, authorId: string) {
+    return this.prisma.$transaction(async tx => {
+      const post = await tx.post.create({ data: { ...dto, tags: dto.tags ?? [], status: PostStatus.DRAFT, authorId } });
+      await tx.auditLog.create({ data: { adminId: authorId, action: 'POST_CREATE', resource: 'post:' + post.id } });
+      return post;
     });
+  }
+
+  async updatePost(id: string, dto: UpdatePostDto, actorId: string, role: AdminRole) {
+    const { version, ...patch } = dto;
+    for (const key of ['type', 'title', 'content', 'tags', 'isHighlighted']) {
+      if ((patch as any)[key] === null) throw new BadRequestException('Trường ' + key + ' không được null');
+    }
+    if (!Object.keys(patch).length) throw new BadRequestException('Chưa có nội dung thay đổi');
+    return this.change(id, actorId, 'POST_EDIT', version, post => {
+      this.assertAuthor(post, actorId, role);
+      if (post.status === PostStatus.ARCHIVED || post.status === PostStatus.PENDING || post.revisionStatus === PostStatus.PENDING)
+        throw new BadRequestException('Không sửa bài lưu trữ hoặc đang chờ duyệt');
+      if (post.status === PostStatus.PUBLISHED) {
+        const current = post.revision || Object.fromEntries(['type','title','summary','content','thumbnail','videoUrl','tags','isHighlighted'].map(k => [k, post[k]]));
+        return { revision: { ...current, ...patch }, revisionStatus: PostStatus.DRAFT, revisionAuthorId: actorId, rejectionNote: null };
+      }
+      return { ...patch, status: PostStatus.DRAFT, rejectionNote: null };
+    });
+  }
+
+  async submitForReview(id: string, actorId: string, role?: AdminRole, version?: number) {
+    return this.change(id, actorId, 'POST_SUBMIT', version, post => {
+      this.assertAuthor(post, actorId, role);
+      const state = post.revision ? post.revisionStatus : post.status;
+      if (![PostStatus.DRAFT, PostStatus.REJECTED].includes(state)) throw new BadRequestException('Chỉ bản nháp hoặc bản bị từ chối mới được gửi duyệt');
+      return post.revision
+        ? { revisionStatus: PostStatus.PENDING, rejectionNote: null }
+        : { status: PostStatus.PENDING, rejectionNote: null, reviewerId: null };
+    });
+  }
+
+  async publishPost(id: string, reviewerId: string, version?: number) {
+    return this.change(id, reviewerId, 'POST_PUBLISH', version, post => {
+      const state = post.revision ? post.revisionStatus : post.status;
+      if (state !== PostStatus.PENDING) throw new BadRequestException('Chỉ nội dung chờ duyệt mới được công khai');
+      return { ...(post.revision || {}), status: PostStatus.PUBLISHED, reviewerId,
+        publishedAt: post.publishedAt || new Date(), rejectionNote: null,
+        revision: Prisma.DbNull, revisionStatus: null, revisionAuthorId: null };
+    });
+  }
+
+  async rejectPost(id: string, reviewerId: string, note?: string, version?: number) {
+    return this.change(id, reviewerId, 'POST_REJECT', version, post => {
+      const state = post.revision ? post.revisionStatus : post.status;
+      if (state !== PostStatus.PENDING) throw new BadRequestException('Chỉ nội dung chờ duyệt mới được từ chối');
+      return post.revision ? { revisionStatus: PostStatus.REJECTED, rejectionNote: note || null }
+        : { status: PostStatus.REJECTED, reviewerId, rejectionNote: note || null };
+    });
+  }
+
+  async archivePost(id: string, adminId: string) {
+    const current = await this.prisma.post.findUnique({ where: { id } });
+    if (!current) throw new NotFoundException('Không tìm thấy bài viết');
+    if (current.status === PostStatus.ARCHIVED) return { id, status: current.status };
+    return this.change(id, adminId, 'POST_ARCHIVE', current.version, () => ({
+      status: PostStatus.ARCHIVED, isHighlighted: false,
+      revisionStatus: null, revision: Prisma.DbNull, revisionAuthorId: null,
+    }));
   }
 }
-

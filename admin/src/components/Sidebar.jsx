@@ -3,6 +3,7 @@ import { useAuth } from "../contexts/AuthContext";
 import "./Sidebar.css";
 
 const NAV_ITEMS = [
+  { to: "/audit", label: "Nhật ký thao tác", icon: "🕒", role: "SUPER_ADMIN" },
   { to: "/",           label: "Tổng quan",       icon: "📊", exact: true },
   { to: "/procedures", label: "Thủ tục HC",      icon: "📋" },
   { to: "/posts",      label: "Tin tức & Hướng dẫn", icon: "📰" },
@@ -42,7 +43,7 @@ export default function Sidebar() {
 
       {/* Navigation */}
       <nav className="sidebar-nav">
-        {NAV_ITEMS.map(item => (
+        {NAV_ITEMS.filter(item => !item.role || item.role === user?.role).map(item => (
           <NavLink
             key={item.to}
             to={item.to}

@@ -1,9 +1,8 @@
-import { useState, useEffect } from "react";
+import { useApiResource } from "../components/use-api-resource";
+import RemoteState, { Pagination } from "../components/remote-state";
 import { Box, Header, Icon, Page, Text } from "zmp-ui";
 
 import { useZaloAction } from "../components/use-zalo-action";
-import { CENTER_INFO as MOCK_CENTER } from "../mocks/center";
-import { api } from "../services/api";
 import { callHotline, followZaloOA, openZaloChat } from "../services/zalo";
 
 function SectionTitle({ children }) {
@@ -35,20 +34,9 @@ function ActionRow({ icon, iconBg, label, sublabel, onClick }) {
 
 function AccountPage() {
   const runZaloAction = useZaloAction();
-  const [centerInfo, setCenterInfo] = useState(MOCK_CENTER);
-
-  useEffect(() => {
-    api.get("/center")
-      .then((data) => {
-        if (data && data.fullName) {
-          setCenterInfo({
-            ...data,
-            workingHours: Array.isArray(data.workingHours) ? data.workingHours : MOCK_CENTER.workingHours,
-          });
-        }
-      })
-      .catch(() => {});
-  }, []);
+  const resource = useApiResource("/center");
+  const centerInfo = resource.data;
+  if (!centerInfo) return <Page className="bg-gray-50 page-with-header"><Header title="Của tôi" showBackIcon={false} /><RemoteState {...resource} empty /></Page>;
 
   function handleHotline() {
     runZaloAction(() => callHotline(centerInfo.hotline));
@@ -63,7 +51,7 @@ function AccountPage() {
   }
 
   return (
-    <Page className="bg-gray-50">
+    <Page className="bg-gray-50 page-with-header">
       <Header title="Của tôi" showBackIcon={false} />
 
       <div className="pb-24 pt-4">
@@ -82,6 +70,7 @@ function AccountPage() {
           </div>
         </Box>
 
+        {/x/i.test(centerInfo.hotline || "") && <div className="m-4 p-3 bg-amber-50 text-amber-800">[DỮ LIỆU MẪU] Thông tin trung tâm đang có số liên hệ mẫu; cần đơn vị xác nhận.</div>}
         {/* Liên hệ */}
         <Box className="mx-4 bg-white rounded-2xl shadow-sm px-4 mb-4">
           <div className="pt-4">
@@ -115,7 +104,7 @@ function AccountPage() {
         <Box className="mx-4 bg-white rounded-2xl shadow-sm p-4 mb-4">
           <SectionTitle>Lịch làm việc</SectionTitle>
           <div className="space-y-2.5">
-            {centerInfo.workingHours.map((wh, i) => (
+            {(Array.isArray(centerInfo.workingHours) ? centerInfo.workingHours : []).map((wh, i) => (
               <div
                 key={i}
                 className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0"
@@ -126,7 +115,7 @@ function AccountPage() {
                 </div>
                 <Text
                   className={`text-sm font-medium ${
-                    wh.hours === "Nghỉ" || wh.hours.includes("Nghỉ")
+                    wh.hours === "Nghỉ" || String(wh.hours || "").includes("Nghỉ")
                       ? "text-red-500"
                       : "text-blue-600"
                   }`}
@@ -151,12 +140,7 @@ function AccountPage() {
           </div>
         </Box>
 
-        {/* Cảnh báo dữ liệu mẫu */}
-        <Box className="mx-4 p-3 bg-yellow-50 rounded-xl border border-yellow-200">
-          <Text className="text-yellow-700 text-xs text-center">
-            ⚠️ Thông tin liên hệ mẫu — cần xác nhận chính thức với đơn vị
-          </Text>
-        </Box>
+
       </div>
     </Page>
   );

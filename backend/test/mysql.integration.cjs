@@ -23,6 +23,7 @@ test('HTTP workflows run correctly against MySQL', { timeout: 60000 }, async t =
   const ids = {};
   t.after(async () => {
     try {
+      if (ids.faq) await db.faq.deleteMany({ where: { id: ids.faq } });
       if (ids.post) await db.post.deleteMany({ where: { id: ids.post } });
       if (ids.notice) await db.notice.deleteMany({ where: { id: ids.notice } });
       if (ids.procedure) await db.procedure.deleteMany({ where: { id: ids.procedure } });
@@ -65,8 +66,8 @@ test('HTTP workflows run correctly against MySQL', { timeout: 60000 }, async t =
     ids.post = draft.data.id;
     assert.deepEqual(draft.data.tags, ['Tiếng Việt']);
     assert.equal((await request('GET', '/posts/' + ids.post)).status, 404);
-    assert.equal((await request('POST', '/posts/admin/' + ids.post + '/submit', {}, true)).status, 201);
-    assert.equal((await request('POST', '/posts/admin/' + ids.post + '/publish', {}, true)).status, 201);
+    assert.equal((await request('POST', '/posts/admin/' + ids.post + '/submit', { version: 0 }, true)).status, 201);
+    assert.equal((await request('POST', '/posts/admin/' + ids.post + '/publish', { version: 1 }, true)).status, 201);
     const post = await request('GET', '/posts/' + ids.post);
     assert.equal(post.status, 200);
     assert.equal(post.data.rejectionNote, undefined);
@@ -74,6 +75,35 @@ test('HTTP workflows run correctly against MySQL', { timeout: 60000 }, async t =
     assert.equal(found.status, 200);
     assert.ok(found.data.data.some(p => p.id === ids.post));
     assert.equal((await request('POST', '/posts/admin/' + ids.post + '/reject', { note: 'test' }, true)).status, 400);
+  });
+
+  await t.test('edits retain public content until review, reject stale approval and never duplicate posts', async () => {
+    const path = '/posts/admin/' + ids.post;
+    const before = (await request('GET', '/posts/' + ids.post)).data;
+    const edit = await request('PATCH', path, { version: 2, content: 'Bản sửa phải qua duyệt' }, true);
+    assert.equal(edit.status, 200); assert.equal(edit.data.id, ids.post);
+    assert.equal(edit.data.status, 'PUBLISHED'); assert.equal(edit.data.revisionStatus, 'DRAFT');
+    assert.equal((await request('GET', '/posts/' + ids.post)).data.content, before.content);
+    assert.equal((await request('GET', '/posts/' + ids.post)).data.revision, undefined);
+    assert.equal((await request('PATCH', path, { version: 2, title: 'Ghi đè cũ' }, true)).status, 409);
+    assert.equal((await request('POST', path + '/submit', { version: 3 }, true)).status, 201);
+    assert.equal((await request('PATCH', path, { version: 4, title: 'Sửa khi chờ' }, true)).status, 400);
+    assert.equal((await request('POST', path + '/publish', { version: 3 }, true)).status, 409);
+    assert.equal((await request('POST', path + '/reject', { version: 4, note: 'Bổ sung nguồn' }, true)).status, 201);
+    assert.equal((await request('GET', '/posts/' + ids.post)).data.content, before.content);
+    assert.equal((await request('PATCH', path, { version: 5, content: 'Đã bổ sung nguồn' }, true)).status, 200);
+    assert.equal((await request('POST', path + '/submit', { version: 6 }, true)).status, 201);
+    const pending = await request('GET', '/posts/admin/all?status=PENDING&search=' + runId, undefined, true);
+    assert.equal(pending.data.total, 1);
+    await db.admin.update({ where: { id: ids.admin }, data: { role: 'EDITOR' } });
+    assert.equal((await request('POST', path + '/publish', { version: 7 }, true)).status, 403);
+    await db.admin.update({ where: { id: ids.admin }, data: { role: 'REVIEWER' } });
+    assert.equal((await request('PATCH', path, { version: 7, title: 'Không có quyền soạn' }, true)).status, 403);
+    assert.equal((await request('POST', path + '/publish', { version: 7 }, true)).status, 201);
+    assert.equal((await request('GET', '/posts/' + ids.post)).data.content, 'Đã bổ sung nguồn');
+    assert.equal(await db.post.count({ where: { authorId: ids.admin } }), 1);
+    assert.equal(await db.auditLog.count({ where: { adminId: ids.admin, action: 'POST_EDIT' } }), 2);
+    await db.admin.update({ where: { id: ids.admin }, data: { role: 'SUPER_ADMIN' } });
   });
 
   await t.test('archive requires permission, hides public content and retains audited data', async () => {
@@ -109,6 +139,10 @@ test('HTTP workflows run correctly against MySQL', { timeout: 60000 }, async t =
     assert.equal((await request('GET', '/procedures/' + ids.procedure)).status, 200);
     assert.equal((await request('DELETE', '/procedures/' + ids.procedure, undefined, true)).status, 200);
     assert.equal((await request('GET', '/procedures/' + ids.procedure)).status, 404);
+    const adminList = await request('GET', '/procedures/admin/all?field=' + field.slug, undefined, true);
+    assert.equal(adminList.status, 200); assert.equal(adminList.data.total, 1);
+    assert.equal((await request('PATCH', '/procedures/' + ids.procedure, { isValid: true }, true)).status, 200);
+    assert.equal((await request('GET', '/procedures/' + ids.procedure)).status, 200);
   });
 
   await t.test('scheduled notices stay hidden including archived listing', async () => {
@@ -119,7 +153,32 @@ test('HTTP workflows run correctly against MySQL', { timeout: 60000 }, async t =
     const list = await request('GET', '/notices?includeArchived=true&search=' + runId);
     assert.equal(list.status, 200);
     assert.ok(!list.data.data.some(n => n.id === ids.notice));
-    assert.equal((await request('PATCH', '/notices/' + ids.notice, { description: 'Đã chỉnh sửa thử' }, true)).status, 200);
+    const adminList = await request('GET', '/notices/admin/all?search=' + runId, undefined, true);
+    assert.equal(adminList.data.meta.total, 1);
+    const updated = await request('PATCH', '/notices/' + ids.notice, { description: 'Đã chỉnh sửa thử', documents: [{ name: 'Tệp thử', fileUrl: 'https://example.com/test.pdf' }] }, true);
+    assert.equal(updated.status, 200); assert.equal(updated.data.documents.length, 1);
+    assert.equal((await request('PATCH', '/notices/' + ids.notice, { documents: [] }, true)).data.documents.length, 0);
+  });
+
+  await t.test('reference publishing is restricted and FAQs hide until explicitly published', async () => {
+    await db.admin.update({ where: { id: ids.admin }, data: { role: 'EDITOR' } });
+    assert.equal((await request('PATCH', '/procedures/' + ids.procedure, { fee: 'Tự sửa' }, true)).status, 403);
+    assert.equal((await request('PATCH', '/notices/' + ids.notice, { description: 'Tự sửa' }, true)).status, 403);
+    assert.equal((await request('POST', '/faqs', { question: 'Thử', answer: 'Thử', isPublished: true }, true)).status, 403);
+    assert.equal((await request('GET', '/faqs/admin/all', undefined, true)).status, 200);
+    assert.equal((await request('GET', '/audit', undefined, true)).status, 403);
+    await db.admin.update({ where: { id: ids.admin }, data: { role: 'REVIEWER' } });
+    const faq = await request('POST', '/faqs', { question: '[DỮ LIỆU KIỂM THỬ] ' + runId, answer: 'Thử', isPublished: false }, true);
+    assert.equal(faq.status, 201); ids.faq = faq.data.id;
+    assert.ok(!(await request('GET', '/faqs')).data.some(f => f.id === ids.faq));
+    assert.equal((await request('PATCH', '/faqs/' + ids.faq, { isPublished: true }, true)).status, 200);
+    assert.ok((await request('GET', '/faqs')).data.some(f => f.id === ids.faq));
+    assert.equal((await request('PATCH', '/center', { name: 'Không có quyền' }, true)).status, 403);
+    await db.admin.update({ where: { id: ids.admin }, data: { role: 'SUPER_ADMIN' } });
+    assert.equal((await request('PATCH', '/center', { workingHours: {} }, true)).status, 400);
+    assert.equal(await db.auditLog.count({ where: { adminId: ids.admin, action: 'FAQ_UPDATE' } }), 1);
+    assert.equal((await request('GET', '/audit', undefined, true)).status, 200);
+    assert.equal((await request('GET', '/audit?limit=1000', undefined, true)).status, 400);
   });
 
   await t.test('disabling admin immediately invalidates its existing session', async () => {

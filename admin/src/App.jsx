@@ -1,3 +1,4 @@
+import AuditPage from "./pages/AuditPage";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ToastProvider } from "./contexts/ToastContext";
@@ -23,6 +24,7 @@ export default function App() {
               <Route path="posts" element={<PostsPage />} />
               <Route path="notices" element={<NoticesPage />} />
               <Route path="faqs" element={<FaqsPage />} />
+              <Route path="audit" element={<AuditPage />} />
               <Route path="center" element={<CenterPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

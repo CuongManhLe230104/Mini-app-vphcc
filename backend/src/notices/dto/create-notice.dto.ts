@@ -1,4 +1,6 @@
+import { Transform } from 'class-transformer';
 import {
+  IsUrl,
   IsString,
   IsNotEmpty,
   IsDateString,
@@ -13,11 +15,14 @@ import { Type } from 'class-transformer';
 /** Tài liệu đính kèm khi tạo niêm yết */
 export class CreateNoticeDocumentDto {
   @IsString()
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
   @IsNotEmpty()
   name: string;
 
   @IsString()
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
   @IsNotEmpty()
+  @IsUrl({ protocols: ['https'], require_protocol: true })
   fileUrl: string;
 
   @IsOptional()
@@ -33,10 +38,12 @@ export class CreateNoticeDocumentDto {
 /** Tạo niêm yết công khai */
 export class CreateNoticeDto {
   @IsString()
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
   @IsNotEmpty()
   title: string;
 
   @IsString()
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
   @IsNotEmpty()
   description: string;
 

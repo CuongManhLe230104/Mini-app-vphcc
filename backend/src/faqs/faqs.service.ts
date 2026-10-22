@@ -1,3 +1,4 @@
+import { auditedWrite } from '../audit/audited-write';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateFaqDto } from './dto/create-faq.dto';
@@ -23,22 +24,22 @@ export class FaqsService {
   }
 
   /** Tạo FAQ (Admin) */
-  async create(dto: CreateFaqDto) {
-    return this.prisma.faq.create({ data: dto });
+  async create(dto: CreateFaqDto, adminId?: string) {
+    return auditedWrite(this.prisma, adminId, 'FAQ_CREATE', 'faq', tx => tx.faq.create({ data: dto }));
   }
 
   /** Cập nhật FAQ (Admin) */
-  async update(id: string, dto: UpdateFaqDto) {
+  async update(id: string, dto: UpdateFaqDto, adminId?: string) {
     const faq = await this.prisma.faq.findUnique({ where: { id } });
     if (!faq) throw new NotFoundException('Không tìm thấy FAQ');
-    return this.prisma.faq.update({ where: { id }, data: dto });
+    return auditedWrite(this.prisma, adminId, 'FAQ_UPDATE', 'faq:' + id, tx => tx.faq.update({ where: { id }, data: dto }));
   }
 
   /** Xoá FAQ (Admin) */
-  async remove(id: string) {
+  async remove(id: string, adminId?: string) {
     const faq = await this.prisma.faq.findUnique({ where: { id } });
     if (!faq) throw new NotFoundException('Không tìm thấy FAQ');
-    return this.prisma.faq.delete({ where: { id } });
+    return auditedWrite(this.prisma, adminId, 'FAQ_DELETE', 'faq:' + id, tx => tx.faq.delete({ where: { id } }));
   }
 }
 
