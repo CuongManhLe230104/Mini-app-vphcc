@@ -1,3 +1,4 @@
+import { useAuth } from "../contexts/AuthContext";
 import { useState, useEffect, useCallback } from "react";
 import { api } from "../services/api";
 import { useToast } from "../contexts/ToastContext";
@@ -166,6 +167,9 @@ function ConfirmDelete({ item, onClose, onDeleted }) {
 
 // ───── Main Page ─────
 export default function ProceduresPage() {
+  const [loadError, setLoadError] = useState("");
+  const { user } = useAuth();
+  const canWrite = ["SUPER_ADMIN", "REVIEWER"].includes(user?.role);
   const [procedures, setProcedures] = useState([]);
   const [fields, setFields] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -179,21 +183,24 @@ export default function ProceduresPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError("");
     try {
-      const res = await api.getProcedures({ page, limit, fieldId: fieldFilter || undefined, search: search || undefined });
+      const res = await api.getProcedures({ page, limit, field: fieldFilter || undefined, search: search || undefined });
       setProcedures(res.data ?? []);
       setTotalPages(res.totalPages ?? 1);
-    } catch { /* show empty */ }
+    } catch (err) { setLoadError(err.message); }
     finally { setLoading(false); }
   }, [page, fieldFilter, search]);
 
-  useEffect(() => { api.getFields().then(data => setFields(Array.isArray(data) ? data : data?.data ?? [])); }, []);
+  useEffect(() => { api.getFields().then(data => setFields(Array.isArray(data) ? data : data?.data ?? [])).catch(err => setLoadError(err.message)); }, []);
   useEffect(() => { load(); }, [load]);
 
   const handleSaved = () => { setModal(null); load(); };
   const handleDeleted = () => { setModal(null); load(); };
 
   const fieldMap = Object.fromEntries(fields.map(f => [f.id, f.label]));
+
+  if (loadError) return <div className="card" role="alert">{loadError}<button className="btn btn-primary" onClick={load}>Thử lại</button></div>;
 
   return (
     <>
@@ -215,10 +222,10 @@ export default function ProceduresPage() {
             onChange={e => { setFieldFilter(e.target.value); setPage(1); }}
           >
             <option value="">Tất cả lĩnh vực</option>
-            {fields.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+            {fields.map(f => <option key={f.id} value={f.slug}>{f.label}</option>)}
           </select>
         </div>
-        <div className="page-toolbar-right">
+        <div className="page-toolbar-right" style={{ display: canWrite ? undefined : "none" }}>
           <button className="btn btn-primary" onClick={() => setModal({ type: "form", item: null })}>
             + Thêm thủ tục
           </button>
@@ -261,7 +268,7 @@ export default function ProceduresPage() {
                   <td>{p.fee}</td>
                   <td><ProcBadge isValid={p.isValid} /></td>
                   <td>
-                    <div className="table-actions">
+                    <div className="table-actions" style={{ display: canWrite ? undefined : "none" }}>
                       <button
                         className="btn btn-ghost btn-sm"
                         onClick={() => setModal({ type: "form", item: p })}
@@ -269,6 +276,7 @@ export default function ProceduresPage() {
                       <button
                         className="btn btn-ghost btn-sm"
                         style={{ color: "var(--danger)" }}
+                        disabled={user?.role !== "SUPER_ADMIN" || !p.isValid}
                         onClick={() => setModal({ type: "delete", item: p })}
                       >🗑</button>
                     </div>

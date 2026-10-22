@@ -26,15 +26,16 @@ function PostBadge({ status }) {
 function PostFormModal({ item, onClose, onSaved }) {
   const { success: toastOk, error: toastErr } = useToast();
   const isEdit = Boolean(item?.id);
+  const editing = item?.revision || item;
   const [form, setForm] = useState({
-    type: item?.type ?? "NEWS",
-    title: item?.title ?? "",
-    summary: item?.summary ?? "",
-    content: item?.content ?? "",
-    thumbnail: item?.thumbnail ?? "",
-    videoUrl: item?.videoUrl ?? "",
-    tags: Array.isArray(item?.tags) ? item.tags.join(", ") : "",
-    isHighlighted: item?.isHighlighted ?? false,
+    type: editing?.type ?? "NEWS",
+    title: editing?.title ?? "",
+    summary: editing?.summary ?? "",
+    content: editing?.content ?? "",
+    thumbnail: editing?.thumbnail ?? "",
+    videoUrl: editing?.videoUrl ?? "",
+    tags: Array.isArray(editing?.tags) ? editing.tags.join(", ") : "",
+    isHighlighted: editing?.isHighlighted ?? false,
   });
   const [saving, setSaving] = useState(false);
 
@@ -50,9 +51,8 @@ function PostFormModal({ item, onClose, onSaved }) {
         tags: form.tags.split(",").map(t => t.trim()).filter(Boolean),
       };
       if (isEdit) {
-        // No dedicated update endpoint yet — just create new draft
-        await api.createDraft(payload);
-        toastOk("Đã tạo bản nháp mới");
+        await api.updatePost(item.id, { ...payload, version: item.version });
+        toastOk(item.status === "PUBLISHED" ? "Đã lưu bản sửa; bản đang công khai giữ nguyên đến khi duyệt" : "Đã cập nhật bản nháp");
       } else {
         await api.createDraft(payload);
         toastOk("Đã lưu nháp");
@@ -134,7 +134,7 @@ function RejectModal({ item, onClose, onDone }) {
   const handle = async () => {
     setLoading(true);
     try {
-      await api.rejectPost(item.id, note);
+      await api.rejectPost(item.id, note, item.version);
       toastOk("Đã từ chối bài viết");
       onDone();
     } catch (err) { toastErr(err.message); }
@@ -265,18 +265,19 @@ export default function PostsPage() {
                     {p.isHighlighted && <span className="badge badge-primary" style={{ marginTop: 4 }}>⭐ Nổi bật</span>}
                   </td>
                   <td>{TYPE_MAP[p.type]?.icon} {TYPE_MAP[p.type]?.label}</td>
-                  <td><PostBadge status={p.status} /></td>
+                  <td><PostBadge status={p.status} />{p.revisionStatus && <div>Bản sửa: <PostBadge status={p.revisionStatus} /></div>}{p.rejectionNote && <div>{p.rejectionNote}</div>}</td>
                   <td style={{ fontSize: "var(--font-size-sm)" }}>{p.author?.fullName || "—"}</td>
                   <td style={{ fontSize: "var(--font-size-sm)", whiteSpace: "nowrap" }}>{fmtDate(p.createdAt)}</td>
                   <td>
                     <div className="table-actions">
-                      {isEditor && p.status === "DRAFT" && (
-                        <button className="btn btn-ghost btn-sm" onClick={() => action(() => api.submitPost(p.id), "Đã gửi duyệt")}>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setModal({ type: "preview", item: p })}>Xem</button>
+                      {isEditor && (user?.role === "SUPER_ADMIN" || (p.revisionAuthorId || p.authorId) === user?.id) && ["DRAFT", "REJECTED"].includes(p.revisionStatus || p.status) && (
+                        <button className="btn btn-ghost btn-sm" onClick={() => action(() => api.submitPost(p.id, p.version), "Đã gửi duyệt")}>
                           📨 Gửi duyệt
                         </button>
                       )}
-                      {isReviewer && p.status === "PENDING" && <>
-                        <button className="btn btn-success btn-sm" onClick={() => action(() => api.publishPost(p.id), "Đã xuất bản")}>
+                      {isReviewer && (p.revisionStatus || p.status) === "PENDING" && <>
+                        <button className="btn btn-success btn-sm" onClick={() => action(() => api.publishPost(p.id, p.version), "Đã xuất bản")}>
                           ✓ Duyệt
                         </button>
                         <button className="btn btn-ghost btn-sm" style={{ color: "var(--danger)" }}
@@ -289,7 +290,7 @@ export default function PostsPage() {
                           Xóa
                         </button>
                       )}
-                      {isEditor && p.status !== "ARCHIVED" && (
+                      {isEditor && !["ARCHIVED", "PENDING"].includes(p.revisionStatus || p.status) && (user?.role === "SUPER_ADMIN" || (p.revisionAuthorId || p.authorId) === user?.id) && (
                         <button className="btn btn-ghost btn-sm" onClick={() => setModal({ type: "form", item: p })}>
                           ✏️
                         </button>
@@ -312,6 +313,22 @@ export default function PostsPage() {
         )}
       </div>
 
+      {modal?.type === "preview" && (
+        <div className="modal-overlay"><div className="modal modal-lg" role="dialog" aria-modal="true" aria-label="Xem nội dung duyệt">
+          <div className="modal-header"><div className="modal-title">Nội dung đang quản lý — phiên bản {modal.item.version}</div><button className="modal-close" onClick={() => setModal(null)}>×</button></div>
+          <div className="modal-body">
+            {modal.item.revision && <p>Bản sửa bên dưới chưa thay thế nội dung đang công khai.</p>}
+            <h2>{(modal.item.revision || modal.item).title}</h2><p>{(modal.item.revision || modal.item).summary}</p>
+            <div style={{ whiteSpace: "pre-wrap" }}>{(modal.item.revision || modal.item).content}</div>
+            <p>Loại: {(modal.item.revision || modal.item).type} · Nổi bật: {(modal.item.revision || modal.item).isHighlighted ? "Có" : "Không"}</p>
+            <p>Nhãn: {((modal.item.revision || modal.item).tags || []).join(", ")}</p>
+            <p>Ảnh: {(modal.item.revision || modal.item).thumbnail || "Không có"}</p>
+            <p>Video: {(modal.item.revision || modal.item).videoUrl || "Không có"}</p>
+            {modal.item.revision && <details><summary>Bản đang công khai</summary><h3>{modal.item.title}</h3><div style={{ whiteSpace: "pre-wrap" }}>{modal.item.content}</div></details>}
+          </div>
+          <div className="modal-footer"><button className="btn btn-ghost" onClick={() => setModal(null)}>Đóng</button></div>
+        </div></div>
+      )}
       {modal?.type === "delete" && (
         <div className="modal-overlay">
           <div className="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="delete-post-title">

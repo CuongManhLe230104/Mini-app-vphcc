@@ -1,3 +1,4 @@
+import { Req } from '@nestjs/common';
 import {
   Controller,
   Get,
@@ -31,6 +32,11 @@ export class NoticesController {
     return this.noticesService.findAll(query);
   }
 
+  @Get('admin/all')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(AdminRole.SUPER_ADMIN, AdminRole.REVIEWER, AdminRole.EDITOR)
+  findAdmin(@Query() query: QueryNoticesDto) { return this.noticesService.findAll(query, true); }
+
   /** Chi tiết niêm yết kèm tài liệu */
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
@@ -42,41 +48,44 @@ export class NoticesController {
   /** Tạo niêm yết — yêu cầu EDITOR trở lên */
   @Post()
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(AdminRole.EDITOR, AdminRole.REVIEWER, AdminRole.SUPER_ADMIN)
-  create(@Body() dto: CreateNoticeDto) {
-    return this.noticesService.create(dto);
+  @Roles(AdminRole.REVIEWER, AdminRole.SUPER_ADMIN)
+  create(@Req() req: any, @Body() dto: CreateNoticeDto) {
+    return this.noticesService.create(dto, req.user.id);
   }
 
   /** Cập nhật niêm yết — admin */
   @Patch(':id')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(AdminRole.EDITOR, AdminRole.REVIEWER, AdminRole.SUPER_ADMIN)
+  @Roles(AdminRole.REVIEWER, AdminRole.SUPER_ADMIN)
   update(
+    @Req() req: any,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateNoticeDto,
   ) {
-    return this.noticesService.update(id, dto);
+    return this.noticesService.update(id, dto, req.user.id);
   }
 
   /** Thêm tài liệu vào niêm yết */
   @Post(':id/documents')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(AdminRole.EDITOR, AdminRole.REVIEWER, AdminRole.SUPER_ADMIN)
+  @Roles(AdminRole.REVIEWER, AdminRole.SUPER_ADMIN)
   addDocument(
+    @Req() req: any,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: CreateNoticeDocumentDto,
   ) {
-    return this.noticesService.addDocument(id, dto);
+    return this.noticesService.addDocument(id, dto, req.user.id);
   }
 
   /** Xoá tài liệu khỏi niêm yết */
   @Delete(':id/documents/:docId')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(AdminRole.EDITOR, AdminRole.REVIEWER, AdminRole.SUPER_ADMIN)
+  @Roles(AdminRole.REVIEWER, AdminRole.SUPER_ADMIN)
   removeDocument(
+    @Req() req: any,
     @Param('id', ParseUUIDPipe) id: string,
     @Param('docId', ParseUUIDPipe) docId: string,
   ) {
-    return this.noticesService.removeDocument(id, docId);
+    return this.noticesService.removeDocument(id, docId, req.user.id);
   }
 }

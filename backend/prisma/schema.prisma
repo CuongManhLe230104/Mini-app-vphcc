@@ -140,6 +140,12 @@ model Post {
   tags          Json        @default("[]")
   isHighlighted Boolean     @default(false)
 
+  // Bản sửa tách khỏi nội dung đang công khai; version chống ghi đè đồng thời.
+  revision       Json?
+  revisionStatus PostStatus?
+  revisionAuthorId String?
+  version        Int @default(0)
+
   // Quy trình duyệt
   authorId      String
   author        Admin       @relation("PostAuthor", fields: [authorId], references: [id])

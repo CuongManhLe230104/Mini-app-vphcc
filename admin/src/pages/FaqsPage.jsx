@@ -107,24 +107,28 @@ function ConfirmDelete({ item, onClose, onDeleted }) {
 }
 
 export default function FaqsPage() {
+  const [loadError, setLoadError] = useState("");
   const { user } = useAuth();
   const [faqs, setFaqs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
 
-  const isEditor     = ["SUPER_ADMIN", "EDITOR"].includes(user?.role);
+  const isEditor     = ["SUPER_ADMIN", "REVIEWER"].includes(user?.role);
   const isSuperAdmin = user?.role === "SUPER_ADMIN";
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError("");
     try {
       const res = await api.getFaqsAdmin();
       setFaqs(Array.isArray(res) ? res : res?.data ?? []);
-    } catch { /* empty */ }
+    } catch (err) { setLoadError(err.message); }
     finally { setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  if (loadError) return <div className="card" role="alert">{loadError}<button className="btn btn-primary" onClick={load}>Thử lại</button></div>;
 
   return (
     <>

@@ -1,3 +1,4 @@
+import { useAuth } from "../contexts/AuthContext";
 import { useState, useEffect, useCallback } from "react";
 import { api } from "../services/api";
 import { useToast } from "../contexts/ToastContext";
@@ -16,12 +17,13 @@ function isActive(notice) {
 function NoticeFormModal({ item, onClose, onSaved }) {
   const { success: toastOk, error: toastErr } = useToast();
   const isEdit = Boolean(item?.id);
-  const toDateInput = (d) => d ? new Date(d).toISOString().substring(0, 10) : "";
+  const toDateInput = (d) => d ? new Date(new Date(d).getTime() + 7 * 3600000).toISOString().substring(0, 10) : "";
   const [form, setForm] = useState({
     title: item?.title ?? "",
     description: item?.description ?? "",
     startDate: toDateInput(item?.startDate),
     endDate: toDateInput(item?.endDate),
+    documents: (item?.documents || []).map(({ name, fileUrl }) => ({ name, fileUrl })),
   });
   const [saving, setSaving] = useState(false);
   const set = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
@@ -32,8 +34,8 @@ function NoticeFormModal({ item, onClose, onSaved }) {
     try {
       const payload = {
         ...form,
-        startDate: new Date(form.startDate).toISOString(),
-        endDate: new Date(form.endDate).toISOString(),
+        startDate: new Date(form.startDate + "T00:00:00+07:00").toISOString(),
+        endDate: new Date(form.endDate + "T23:59:59+07:00").toISOString(),
       };
       if (isEdit) await api.updateNotice(item.id, payload);
       else        await api.createNotice(payload);
@@ -70,8 +72,15 @@ function NoticeFormModal({ item, onClose, onSaved }) {
                 <input className="form-input" type="date" value={form.endDate} onChange={set("endDate")} required />
               </div>
             </div>
-            <div className="form-hint">
-              ℹ Tài liệu đính kèm có thể được thêm sau khi tạo niêm yết.
+            <div className="form-group">
+              <label className="form-label">Tài liệu đính kèm (đường dẫn HTTPS)</label>
+              {form.documents.map((doc, idx) => <div key={idx} style={{ marginBottom: 12 }}>
+                <input className="form-input" aria-label="Tên tài liệu" placeholder="Tên tài liệu" required value={doc.name} onChange={e => setForm(p => ({ ...p, documents: p.documents.map((d,i) => i===idx ? { ...d, name: e.target.value } : d) }))} />
+                <input className="form-input" type="url" pattern="https://.*" aria-label="Đường dẫn tài liệu" placeholder="https://..." required value={doc.fileUrl} onChange={e => setForm(p => ({ ...p, documents: p.documents.map((d,i) => i===idx ? { ...d, fileUrl: e.target.value } : d) }))} />
+                <button type="button" className="btn btn-ghost" onClick={() => setForm(p => ({ ...p, documents: p.documents.filter((_,i) => i!==idx) }))}>Bỏ tài liệu</button>
+              </div>)}
+              <button type="button" className="btn btn-ghost" onClick={() => setForm(p => ({ ...p, documents: [...p.documents, { name: "", fileUrl: "" }] }))}>+ Thêm tài liệu</button>
+              <p className="form-hint">Kiểm tra nội dung và thời hạn trước khi lưu; niêm yết sẽ công khai từ ngày bắt đầu.</p>
             </div>
           </div>
           <div className="modal-footer">
@@ -88,6 +97,9 @@ function NoticeFormModal({ item, onClose, onSaved }) {
 
 // ───── Main ─────
 export default function NoticesPage() {
+  const [loadError, setLoadError] = useState("");
+  const { user } = useAuth();
+  const canWrite = ["SUPER_ADMIN", "REVIEWER"].includes(user?.role);
   const [notices, setNotices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -98,21 +110,24 @@ export default function NoticesPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError("");
     try {
       const res = await api.getNotices({ page, limit });
       setNotices(res.data ?? []);
-      setTotalPages(res.totalPages ?? 1);
-    } catch { /* empty */ }
+      setTotalPages(res.meta?.totalPages ?? 1);
+    } catch (err) { setLoadError(err.message); }
     finally { setLoading(false); }
   }, [page]);
 
   useEffect(() => { load(); }, [load]);
 
+  if (loadError) return <div className="card" role="alert">{loadError}<button className="btn btn-primary" onClick={load}>Thử lại</button></div>;
+
   return (
     <>
       <div className="page-toolbar">
         <div className="page-toolbar-left" />
-        <div className="page-toolbar-right">
+        <div className="page-toolbar-right" style={{ display: canWrite ? undefined : "none" }}>
           <button className="btn btn-primary" onClick={() => setModal({ item: null })}>
             + Thêm niêm yết
           </button>
@@ -153,7 +168,7 @@ export default function NoticesPage() {
                   </td>
                   <td>{Array.isArray(n.documents) ? n.documents.length : 0} tệp</td>
                   <td>
-                    <button className="btn btn-ghost btn-sm" onClick={() => setModal({ item: n })}>✏️</button>
+                    <button style={{ display: canWrite ? undefined : "none" }} className="btn btn-ghost btn-sm" onClick={() => setModal({ item: n })}>✏️</button>
                   </td>
                 </tr>
               ))}

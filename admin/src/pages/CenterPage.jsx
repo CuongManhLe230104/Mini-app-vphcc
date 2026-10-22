@@ -3,14 +3,12 @@ import { api } from "../services/api";
 import { useToast } from "../contexts/ToastContext";
 import { useAuth } from "../contexts/AuthContext";
 
-const DEFAULT_WORKING_HOURS = [
-  { day: "Thứ Hai – Thứ Sáu", hours: "7:30 – 11:30, 13:00 – 17:00" },
-  { day: "Thứ Bảy", hours: "7:30 – 11:30" },
-];
 
 export default function CenterPage() {
   const { user } = useAuth();
   const { success: toastOk, error: toastErr } = useToast();
+  const [loadError, setLoadError] = useState("");
+  const [retry, setRetry] = useState(0);
   const [center, setCenter] = useState(null);
   const [form, setForm] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -18,6 +16,7 @@ export default function CenterPage() {
   const isSuperAdmin = user?.role === "SUPER_ADMIN";
 
   useEffect(() => {
+    setLoading(true); setLoadError("");
     api.getCenter()
       .then(data => {
         setCenter(data);
@@ -34,21 +33,12 @@ export default function CenterPage() {
             : "",
         });
       })
-      .catch(() => {
-        // Center chưa có — init form trống
-        setForm({
-          name: "TT PVHCC xã Nghĩa Thành",
-          fullName: "Trung tâm Phục vụ hành chính công xã Nghĩa Thành",
-          address: "Xã Nghĩa Thành, tỉnh Quảng Ngãi",
-          hotline: "",
-          oaId: "",
-          servicePortalUrl: "",
-          caseTrackingUrl: "",
-          workingHoursText: DEFAULT_WORKING_HOURS.map(w => `${w.day}: ${w.hours}`).join("\n"),
-        });
+      .catch(err => {
+        if (err.status !== 404) { setLoadError(err.message); return; }
+        setForm({ name: "", fullName: "", address: "", hotline: "", oaId: "", servicePortalUrl: "", caseTrackingUrl: "", workingHoursText: "" });
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [retry]);
 
   const set = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
 
@@ -56,6 +46,7 @@ export default function CenterPage() {
     e.preventDefault();
     setSaving(true);
     try {
+      if (form.workingHoursText.split("\n").filter(line => line.trim()).some(line => !/^.+?:.+$/.test(line))) throw new Error("Mỗi dòng lịch làm việc cần có dạng: Ngày: giờ làm việc");
       const workingHours = form.workingHoursText
         .split("\n")
         .map(line => {
@@ -69,9 +60,9 @@ export default function CenterPage() {
         fullName: form.fullName,
         address: form.address,
         hotline: form.hotline,
-        oaId: form.oaId || undefined,
-        servicePortalUrl: form.servicePortalUrl || undefined,
-        caseTrackingUrl: form.caseTrackingUrl || undefined,
+        oaId: form.oaId,
+        servicePortalUrl: form.servicePortalUrl,
+        caseTrackingUrl: form.caseTrackingUrl,
         workingHours,
       };
       await api.updateCenter(payload);
@@ -79,6 +70,8 @@ export default function CenterPage() {
     } catch (err) { toastErr(err.message); }
     finally { setSaving(false); }
   };
+
+  if (loadError) return <div className="card" role="alert">{loadError}<button className="btn btn-primary" onClick={() => setRetry(n => n+1)}>Thử lại</button></div>;
 
   if (loading || !form) return (
     <div className="loading-full"><span className="spinner" /> Đang tải...</div>

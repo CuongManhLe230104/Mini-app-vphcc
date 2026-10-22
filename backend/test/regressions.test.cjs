@@ -54,16 +54,36 @@ test('soft-deleted procedure is not visible through its detail URL', async () =>
   await assert.rejects(() => new ProceduresService(prisma).findOne('p'), e => e.getStatus() === 404);
 });
 
+function postStore(initial) {
+  let record = { version: 0, ...initial };
+  const db = { post: {
+    findUnique: async () => record,
+    updateMany: async ({ where, data }) => { if (where.version !== record.version) return { count: 0 }; record = { ...record, ...data, version: record.version + 1 }; return { count: 1 }; },
+  }, auditLog: { create: async () => ({}) } };
+  db.$transaction = fn => fn(db);
+  return db;
+}
 test('published post cannot be rejected outside the review workflow', async () => {
-  const prisma = { post: { findUnique: async () => ({ id: 'p', status: 'PUBLISHED' }), update: async () => ({ status: 'REJECTED' }) } };
-  await assert.rejects(() => new ContentService(prisma).rejectPost('p', 'r'), e => e.getStatus() === 400);
+  await assert.rejects(() => new ContentService(postStore({ id: 'p', status: 'PUBLISHED' })).rejectPost('p', 'r'), e => e.getStatus() === 400);
 });
-
 test('pending post can be rejected with a reason', async () => {
-  const prisma = { post: { findUnique: async () => ({ id: 'p', status: 'PENDING' }), update: async ({ data }) => data } };
-  const post = await new ContentService(prisma).rejectPost('p', 'r', 'Cần bổ sung');
-  assert.equal(post.status, 'REJECTED');
-  assert.equal(post.rejectionNote, 'Cần bổ sung');
+  const post = await new ContentService(postStore({ id: 'p', status: 'PENDING' })).rejectPost('p', 'r', 'Cần bổ sung');
+  assert.equal(post.status, 'REJECTED'); assert.equal(post.rejectionNote, 'Cần bổ sung');
+});
+test('stale version cannot overwrite a newer revision', async () => {
+  await assert.rejects(() => new ContentService(postStore({ id: 'p', status: 'DRAFT', authorId: 'a', version: 2 })).updatePost('p', { version: 1, title: 'Cũ' }, 'a', 'EDITOR'), e => e.getStatus() === 409);
+});
+test('another editor cannot change the author draft', async () => {
+  await assert.rejects(() => new ContentService(postStore({ id: 'p', status: 'DRAFT', authorId: 'a' })).updatePost('p', { version: 0, title: 'Sửa' }, 'b', 'EDITOR'), e => e.getStatus() === 403);
+});
+test('malformed center schedule and unsafe document links are rejected', async () => {
+  const pipe = source('common/validation.pipe.ts').createValidationPipe();
+  const Center = source('center/dto/update-center.dto.ts').UpdateCenterDto;
+  const Doc = source('notices/dto/create-notice.dto.ts').CreateNoticeDocumentDto;
+  for (const body of [{ workingHours: {} }, { workingHours: [{ day: 'Hai', hours: 123 }] }, { servicePortalUrl: 'javascript:alert(1)' }, { name: null }]) {
+    await assert.rejects(() => pipe.transform(body, { type: 'body', metatype: Center }), e => e.getStatus() === 400);
+  }
+  await assert.rejects(() => pipe.transform({ name: 'Tệp', fileUrl: 'javascript:alert(1)' }, { type: 'body', metatype: Doc }), e => e.getStatus() === 400);
 });
 
 test('scheduled notice is hidden publicly but remains editable by admin', async () => {

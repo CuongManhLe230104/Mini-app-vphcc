@@ -1,15 +1,15 @@
-import { useState, useEffect } from "react";
+import { useApiResource } from "../components/use-api-resource";
+import RemoteState, { Pagination } from "../components/remote-state";
 import { useNavigate } from "react-router-dom";
 import { Box, Button, Header, Icon, Page, Text } from "zmp-ui";
 
-import { CENTER_INFO as MOCK_CENTER } from "../mocks/center";
-import { api } from "../services/api";
 import { callHotline, followZaloOA, openServicePortal } from "../services/zalo";
 import Logo from "../components/logo";
 import { useZaloAction } from "../components/use-zalo-action";
 
 /** Danh sách tiện ích nhanh trên trang chủ */
 const QUICK_SERVICES = [
+  { label: "Hỏi đáp", icon: "zi-help-circle", color: "bg-blue-50 text-blue-600", action: "nav", to: "/faqs" },
   {
     label: "Thủ tục",
     icon: "zi-list-1",
@@ -76,36 +76,10 @@ function PostTypeBadge({ type }) {
 function HomePage() {
   const navigate = useNavigate();
   const runZaloAction = useZaloAction();
-  const [centerInfo, setCenterInfo] = useState(MOCK_CENTER);
-  const [posts, setPosts] = useState([]);
-
-  const [postsLoading, setPostsLoading] = useState(true);
-  const [postsError, setPostsError] = useState("");
-
-  useEffect(() => {
-    // Tải thông tin trung tâm từ backend
-    api.get("/center")
-      .then((data) => {
-        if (data && data.fullName) setCenterInfo(data);
-      })
-      .catch(() => {});
-
-    // Tải tin tức từ backend
-    api.get("/posts?limit=3")
-      .then((res) => {
-        if (res && Array.isArray(res.data)) {
-          // Map kiểu dữ liệu từ backend sang format hiển thị
-          const mapped = res.data.map((p) => ({
-            ...p,
-            type: (p.type || "news").toLowerCase(),
-          }));
-          setPosts(mapped);
-        }
-      })
-      .catch(() => setPostsError("Không tải được tin tức. Vui lòng kiểm tra kết nối và mở lại trang."))
-      .finally(() => setPostsLoading(false));
-  }, []);
-
+  const centerResource = useApiResource("/center");
+  const centerInfo = centerResource.data || {};
+  const postsResource = useApiResource("/posts?limit=3");
+  const posts = (postsResource.data?.data || []).map(p => ({ ...p, type: p.type.toLowerCase() }));
   const highlighted = posts.filter((p) => p.isHighlighted).slice(0, 3);
 
   function handleQuickService(svc) {
@@ -126,21 +100,16 @@ function HomePage() {
               <Logo style={{ width: "100%", height: "100%", objectFit: "contain" }} />
             </div>
             <div>
-              <Text className="text-white text-base font-semibold leading-snug">
-                Trung tâm Phục vụ
-              </Text>
-              <Text className="text-white text-lg font-bold leading-snug">
-                Hành chính công
-              </Text>
-              <Text className="text-blue-200 text-sm mt-0.5">xã Nghĩa Thành</Text>
+              <Text className="text-white text-lg font-bold leading-snug">{centerInfo.fullName || "Thông tin trung tâm"}</Text>
             </div>
           </div>
           <div className="mt-2 flex items-center gap-1.5">
             <Icon icon="zi-location" className="text-blue-300 flex-shrink-0" size={16} />
-            <Text className="text-blue-200 text-xs leading-tight">{centerInfo.address}</Text>
+            <Text className="text-blue-200 text-xs leading-tight">{centerInfo.address || ""}</Text>
           </div>
         </div>
 
+        <RemoteState {...centerResource} />
         {/* Tiện ích nhanh */}
         <Box className="mx-4 -mt-4 bg-white rounded-2xl shadow-sm px-4 py-4">
           <Text className="text-gray-800 font-semibold text-base mb-3">
@@ -181,8 +150,8 @@ function HomePage() {
             </button>
           </div>
 
-          {postsLoading || postsError ? (
-            <Box className="bg-white rounded-xl p-4" role="status">{postsLoading ? "Đang tải tin tức..." : postsError}</Box>
+          {postsResource.loading || postsResource.error ? (
+            <RemoteState {...postsResource} />
           ) : highlighted.length === 0 ? (
             <Box className="bg-white rounded-xl p-4 text-center">
               <Text className="text-gray-400 text-sm">Chưa có tin tức</Text>

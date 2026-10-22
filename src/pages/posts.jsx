@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useApiResource } from "../components/use-api-resource";
+import RemoteState, { Pagination } from "../components/remote-state";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Box, Header, Icon, Input, Page, Text } from "zmp-ui";
 
-import { POST_TYPES } from "../mocks/posts";
-import { api } from "../services/api";
+const POST_TYPES = [{ id: "all", label: "Tất cả" }, { id: "news", label: "Tin tức" }, { id: "guide", label: "Hướng dẫn" }, { id: "video", label: "Video" }];
 
 function formatDate(iso) {
   const d = new Date(iso);
@@ -32,37 +33,15 @@ function PostsPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [activeType, setActiveType] = useState("all");
-  const [posts, setPosts] = useState([]);
-
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    api.get("/posts?limit=50")
-      .then((res) => {
-        if (res && Array.isArray(res.data)) {
-          const mapped = res.data.map((p) => ({
-            ...p,
-            type: (p.type || "news").toLowerCase(),
-          }));
-          setPosts(mapped);
-        }
-      })
-      .catch(() => setError("Không tải được tin tức. Vui lòng kiểm tra kết nối và mở lại trang."))
-      .finally(() => setLoading(false));
-  }, []);
-
-  const filtered = posts.filter((p) => {
-    const matchType = activeType === "all" || p.type === activeType;
-    const matchSearch =
-      !search.trim() ||
-      p.title.toLowerCase().includes(search.toLowerCase()) ||
-      (p.summary ?? "").toLowerCase().includes(search.toLowerCase());
-    return matchType && matchSearch;
-  });
+  const [page, setPage] = useState(1);
+  const query = new URLSearchParams({ page, limit: 20, search: search.trim() });
+  if (activeType !== "all") query.set("type", activeType.toUpperCase());
+  const resource = useApiResource("/posts?" + query);
+  const { loading, error } = resource;
+  const filtered = (resource.data?.data || []).map(p => ({ ...p, type: p.type.toLowerCase() }));
 
   return (
-    <Page className="bg-gray-50">
+    <Page className="bg-gray-50 page-with-header">
       <Header title="Tin tức & Hướng dẫn" showBackIcon={false} />
 
       <div className="pb-24 pt-2">
@@ -72,10 +51,10 @@ function PostsPage() {
             type="text"
             placeholder="Tìm bài viết..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             prefix={<Icon icon="zi-search" />}
             clearable
-            onClear={() => setSearch("")}
+            onClear={() => { setSearch(""); setPage(1); }}
           />
         </Box>
 
@@ -84,13 +63,13 @@ function PostsPage() {
           {POST_TYPES.map((t) => (
             <button
               key={t.id}
-              onClick={() => setActiveType(t.id)}
+              onClick={() => { setActiveType(t.id); setPage(1); }}
               className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                 activeType === t.id
                   ? "bg-blue-600 text-white"
                   : "bg-white text-gray-600 border border-gray-200"
               }`}
-              style={{ minHeight: 36 }}
+              style={{ minHeight: 44 }}
             >
               {t.label}
             </button>
@@ -99,7 +78,7 @@ function PostsPage() {
 
         {/* Danh sách bài viết */}
         {loading || error ? (
-          <Box className="mx-4 bg-white rounded-xl p-4" role="status">{loading ? "Đang tải tin tức..." : error}</Box>
+          <RemoteState {...resource} />
         ) : filtered.length === 0 ? (
           <Box className="mx-4 bg-white rounded-xl p-8 text-center">
             <Icon icon="zi-search" className="text-gray-300 mb-2" size={40} />
@@ -134,6 +113,7 @@ function PostsPage() {
             ))}
           </div>
         )}
+        <Pagination page={page} totalPages={resource.data?.totalPages} onChange={setPage} disabled={loading} />
       </div>
     </Page>
   );

@@ -14,11 +14,11 @@ export default function DashboardPage() {
       api.getFaqsAdmin(),
     ]).then(([procedures, published, pending, notices, faqs]) => {
       setStats({
-        procedures: procedures.value?.total ?? 0,
-        published:  published.value?.total ?? 0,
-        pending:    pending.value?.total ?? 0,
-        notices:    notices.value?.total ?? 0,
-        faqs:       faqs.status === "fulfilled" ? (Array.isArray(faqs.value) ? faqs.value.length : 0) : 0,
+        procedures: procedures.value?.total ?? "Không tải được",
+        published:  published.value?.total ?? "Không tải được",
+        pending:    pending.value?.total ?? "Không tải được",
+        notices:    notices.value?.meta?.total ?? "Không tải được",
+        faqs:       faqs.status === "fulfilled" ? (Array.isArray(faqs.value) ? faqs.value.length : 0) : "Không tải được",
       });
       setLoading(false);
     });

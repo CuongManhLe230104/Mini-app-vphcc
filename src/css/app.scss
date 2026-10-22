@@ -12,3 +12,8 @@
 .zaui-list-item {
   cursor: pointer;
 }
+
+/* ZaUI Header is fixed; reserve its height and Zalo safe area. */
+.page-with-header {
+  padding-top: calc(var(--zaui-safe-area-inset-top, 0px) + 44px);
+}

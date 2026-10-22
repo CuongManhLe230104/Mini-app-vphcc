@@ -1,3 +1,4 @@
+import FaqsPage from "../pages/faqs";
 import { getSystemInfo } from "zmp-sdk";
 import {
   AnimationRoutes,
@@ -28,6 +29,7 @@ const Layout = () => {
             <Route path="/posts" element={<PostsPage />} />
             <Route path="/posts/:id" element={<PostDetailPage />} />
             <Route path="/notices" element={<NoticesPage />} />
+            <Route path="/faqs" element={<FaqsPage />} />
             <Route path="/account" element={<AccountPage />} />
           </AnimationRoutes>
           <AppBottomNavigation />

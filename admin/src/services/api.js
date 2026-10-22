@@ -52,6 +52,7 @@ const patch = (path, body, opts = {}) => request(path, { ...opts, method: "PATCH
 const del  = (path, opts = {}) => request(path, { ...opts, method: "DELETE" });
 
 export const api = {
+  getAudit: (page = 1) => get(`/audit?page=${page}&limit=20`),
   // Auth
   login: (username, password) => post("/auth/admin/login", { username, password }),
   me: () => get("/auth/me"),
@@ -67,7 +68,7 @@ export const api = {
   getProcedures: (params = {}) => {
     const q = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => v !== undefined && v !== "" && q.append(k, v));
-    return get(`/procedures?${q}`);
+    return get(`/procedures/admin/all?${q}`);
   },
   createProcedure: (data) => post("/procedures", data),
   updateProcedure: (id, data) => patch(`/procedures/${id}`, data),
@@ -80,16 +81,17 @@ export const api = {
     return get(`/posts/admin/all?${q}`);
   },
   deletePost: (id) => del(`/posts/admin/${id}`),
+  updatePost: (id, data) => patch(`/posts/admin/${id}`, data),
   createDraft: (data) => post("/posts/admin/draft", data),
-  submitPost: (id) => post(`/posts/admin/${id}/submit`, {}),
-  publishPost: (id) => post(`/posts/admin/${id}/publish`, {}),
-  rejectPost: (id, note) => post(`/posts/admin/${id}/reject`, { note }),
+  submitPost: (id, version) => post(`/posts/admin/${id}/submit`, { version }),
+  publishPost: (id, version) => post(`/posts/admin/${id}/publish`, { version }),
+  rejectPost: (id, note, version) => post(`/posts/admin/${id}/reject`, { note, version }),
 
   // Notices
   getNotices: (params = {}) => {
     const q = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => v !== undefined && v !== "" && q.append(k, v));
-    return get(`/notices?${q}`);
+    return get(`/notices/admin/all?${q}`);
   },
   createNotice: (data) => post("/notices", data),
   updateNotice: (id, data) => patch(`/notices/${id}`, data),

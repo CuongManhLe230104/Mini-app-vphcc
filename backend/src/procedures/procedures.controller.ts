@@ -1,3 +1,4 @@
+import { Req } from '@nestjs/common';
 import { Controller, Get, Post, Patch, Delete, Param, Query, Body, UseGuards } from '@nestjs/common';
 import { ProceduresService } from './procedures.service';
 import { CreateProcedureDto } from './dto/create-procedure.dto';
@@ -24,6 +25,11 @@ export class ProceduresController {
     return this.proceduresService.findAll(query);
   }
 
+  @Get('admin/all')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(AdminRole.SUPER_ADMIN, AdminRole.REVIEWER, AdminRole.EDITOR)
+  findAdmin(@Query() query: QueryProceduresDto) { return this.proceduresService.findAll(query, true); }
+
   /** Chi tiết thủ tục (công khai) */
   @Get(':id')
   async findOne(@Param('id') id: string) {
@@ -33,25 +39,25 @@ export class ProceduresController {
   /** Tạo thủ tục mới (Admin EDITOR+) */
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(AdminRole.SUPER_ADMIN, AdminRole.EDITOR)
-  async create(@Body() dto: CreateProcedureDto) {
-    return this.proceduresService.create(dto);
+  @Roles(AdminRole.SUPER_ADMIN, AdminRole.REVIEWER)
+  async create(@Req() req: any, @Body() dto: CreateProcedureDto) {
+    return this.proceduresService.create(dto, req.user.id);
   }
 
   /** Cập nhật thủ tục (Admin EDITOR+) */
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(AdminRole.SUPER_ADMIN, AdminRole.EDITOR)
-  async update(@Param('id') id: string, @Body() dto: UpdateProcedureDto) {
-    return this.proceduresService.update(id, dto);
+  @Roles(AdminRole.SUPER_ADMIN, AdminRole.REVIEWER)
+  async update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateProcedureDto) {
+    return this.proceduresService.update(id, dto, req.user.id);
   }
 
   /** Xoá thủ tục (Admin SUPER_ADMIN) */
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(AdminRole.SUPER_ADMIN)
-  async remove(@Param('id') id: string) {
-    return this.proceduresService.remove(id);
+  async remove(@Req() req: any, @Param('id') id: string) {
+    return this.proceduresService.remove(id, req.user.id);
   }
 }
 

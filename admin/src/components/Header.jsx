@@ -1,6 +1,7 @@
 import { useLocation } from "react-router-dom";
 
 const PAGE_TITLES = {
+  "/audit": "Nhật ký thao tác",
   "/":            "Tổng quan",
   "/procedures":  "Thủ tục hành chính",
   "/posts":       "Tin tức & Hướng dẫn",
