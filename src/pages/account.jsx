@@ -3,7 +3,9 @@ import RemoteState, { Pagination } from "../components/remote-state";
 import { Box, Header, Icon, Page, Text } from "zmp-ui";
 
 import { useZaloAction } from "../components/use-zalo-action";
-import { callHotline, followZaloOA, openZaloChat } from "../services/zalo";
+import { callHotline, followZaloOA, openServicePortal, openZaloChat } from "../services/zalo";
+
+const FEEDBACK_PORTAL_URL = "https://dichvucong.gov.vn/nop-phan-anh-kien-nghi?typeInapp=1";
 
 function SectionTitle({ children }) {
   return (
@@ -96,6 +98,13 @@ function AccountPage() {
             label="Quan tâm Zalo OA"
             sublabel="Nhận thông báo từ trung tâm"
             onClick={handleFollowOA}
+          />
+          <ActionRow
+            icon="zi-edit-text"
+            iconBg="bg-orange-100"
+            label="Phản ánh kiến nghị"
+            sublabel="Gửi qua Cổng Dịch vụ công Quốc gia (dichvucong.gov.vn)"
+            onClick={() => runZaloAction(() => openServicePortal(FEEDBACK_PORTAL_URL))}
           />
           <div className="pb-2" />
         </Box>

@@ -7,6 +7,8 @@ import { callHotline, followZaloOA, openServicePortal } from "../services/zalo";
 import Logo from "../components/logo";
 import { useZaloAction } from "../components/use-zalo-action";
 
+const FEEDBACK_PORTAL_URL = "https://dichvucong.gov.vn/nop-phan-anh-kien-nghi?typeInapp=1";
+
 /** Danh sách tiện ích nhanh trên trang chủ */
 const QUICK_SERVICES = [
   { label: "Hỏi đáp", icon: "zi-help-circle", color: "bg-blue-50 text-blue-600", action: "nav", to: "/faqs" },
@@ -30,6 +32,12 @@ const QUICK_SERVICES = [
     color: "bg-green-50 text-green-600",
     action: "nav",
     to: "/notices",
+  },
+  {
+    label: "Phản ánh",
+    icon: "zi-edit-text",
+    color: "bg-orange-50 text-orange-600",
+    action: "feedback",
   },
   {
     label: "Liên hệ",
@@ -85,6 +93,7 @@ function HomePage() {
   function handleQuickService(svc) {
     if (svc.action === "nav") navigate(svc.to);
     else if (svc.action === "hotline") runZaloAction(() => callHotline(centerInfo.hotline));
+    else if (svc.action === "feedback") runZaloAction(() => openServicePortal(FEEDBACK_PORTAL_URL));
     else if (svc.action === "oa") {
       runZaloAction(() => followZaloOA(centerInfo.oaId));
     }
@@ -221,6 +230,24 @@ function HomePage() {
                 </Text>
                 <Text className="text-gray-400 text-xs">
                   Qua cổng dịch vụ công quốc gia
+                </Text>
+              </div>
+              <Icon icon="zi-chevron-right" className="text-gray-300" size={18} />
+            </button>
+
+            <button
+              className="w-full bg-white border border-blue-200 rounded-xl py-3.5 px-4 flex items-center gap-3 active:opacity-70 transition-opacity"
+              onClick={() => runZaloAction(() => openServicePortal(FEEDBACK_PORTAL_URL))}
+            >
+              <div className="w-10 h-10 bg-orange-50 rounded-full flex items-center justify-center flex-shrink-0">
+                <Icon icon="zi-edit-text" className="text-orange-600" size={20} />
+              </div>
+              <div className="flex-1 text-left">
+                <Text className="text-gray-800 font-medium text-sm">
+                  Phản ánh kiến nghị
+                </Text>
+                <Text className="text-gray-400 text-xs">
+                  Qua cổng dịch vụ công quốc gia (dichvucong.gov.vn)
                 </Text>
               </div>
               <Icon icon="zi-chevron-right" className="text-gray-300" size={18} />
