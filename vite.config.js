@@ -6,6 +6,7 @@ import react from "@vitejs/plugin-react";
 export default () => {
   return defineConfig({
     root: "./src",
+    envDir: process.cwd(),
     base: "",
     plugins: [zaloMiniApp(), react()],
     server: {

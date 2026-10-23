@@ -11,9 +11,35 @@ async function bootstrap() {
   app.useGlobalPipes(createValidationPipe());
 
   // CORS
+  const configuredOrigins = config
+    .get<string>('CORS_ORIGIN', 'http://localhost:4000,http://localhost:3000')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const allowedOrigins = Array.from(
+    new Set([
+      ...configuredOrigins,
+      'http://localhost:3000',
+      'http://localhost:2999',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:2999',
+      'http://localhost:4000',
+      'https://h5.zdn.vn',
+      'https://h5.zadn.vn',
+    ]),
+  );
   app.enableCors({
-    origin: config.get<string>('CORS_ORIGIN', 'http://localhost:4000,http://localhost:3000')
-      .split(',').map((origin) => origin.trim()).filter(Boolean),
+    origin: (origin, callback) => {
+      if (
+        !origin ||
+        allowedOrigins.includes(origin) ||
+        /^https:\/\/([a-z0-9-]+\.)?(zdn|zadn|zalo)\.vn$/i.test(origin)
+      ) {
+        callback(null, true);
+      } else {
+        callback(null, false);
+      }
+    },
     credentials: true,
   });
 

@@ -3,13 +3,13 @@ import { useAuth } from "../contexts/AuthContext";
 import "./Sidebar.css";
 
 const NAV_ITEMS = [
-  { to: "/audit", label: "Nhật ký thao tác", icon: "🕒", role: "SUPER_ADMIN" },
   { to: "/",           label: "Tổng quan",       icon: "📊", exact: true },
   { to: "/procedures", label: "Thủ tục HC",      icon: "📋" },
   { to: "/posts",      label: "Tin tức & Hướng dẫn", icon: "📰" },
   { to: "/notices",    label: "Niêm yết",         icon: "📌" },
   { to: "/faqs",       label: "Câu hỏi thường gặp", icon: "❓" },
   { to: "/center",     label: "Thông tin trung tâm", icon: "🏛️" },
+  { to: "/audit", label: "Nhật ký thao tác", icon: "🕒", role: "SUPER_ADMIN" },
 ];
 
 const ROLE_LABELS = {
