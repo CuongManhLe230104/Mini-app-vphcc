@@ -298,3 +298,100 @@ Chốt hạ tầng trước M2, chốt quy trình phản ánh trước M4. Khôn
 - [Phát hành Mini App](https://docs.zaloplatforms.com/docs/MA/intro/public-mini-program)
 
 Đối chiếu tài liệu và phiên bản SDK thực tế khi triển khai từng tính năng.
+
+## 17. Kế hoạch triển khai và phát hành công khai (M5)
+
+### 17.1. Hiểu đúng các trạng thái
+
+- Mini App **đã xác thực** chỉ đủ điều kiện gửi phiên bản xét duyệt, chưa đồng nghĩa đã công khai.
+- **Development** dùng phát triển nhanh. **Testing** là phiên bản được lưu trong Quản lý phiên bản và có thể gửi xét duyệt. Zalo chuyển phiên bản qua **Chờ xét duyệt** và **Đã duyệt**; chỉ phiên bản Đã duyệt mới chọn **Publish** để phân phối tới người dùng.
+- Bản Testing hiện có và URL Quick Tunnel dạng trycloudflare.com chỉ chứng minh khả năng thử nghiệm. Quick Tunnel phụ thuộc tiến trình/máy đang chạy, địa chỉ có thể đổi; không dùng làm API production.
+- Kế hoạch bên dưới là việc **cần làm**, không xác nhận dự án hiện đã sẵn sàng hoặc đã Publish.
+
+### 17.2. Công cụ và người phụ trách
+
+| Việc | Công cụ | Kết quả |
+|---|---|---|
+| Quản lý mã | Git, GitHub, PR, tag | Chốt chính xác commit của Mini App, backend và admin; có điểm quay lại |
+| Kiểm tra | Node.js/npm, test/build của ba phần; GitHub Actions nếu triển khai CI | Báo cáo đạt và danh sách lỗi còn mở |
+| Hạ tầng | Máy chủ được đơn vị phê duyệt, Docker/Compose nếu phù hợp, DNS, HTTPS qua Caddy/Nginx hoặc dịch vụ tương đương | API và admin chạy ổn định qua tên miền chính thức |
+| Dữ liệu | MySQL, Prisma migration, sao lưu và thử khôi phục | Dữ liệu thật bền vững, không phụ thuộc máy cá nhân |
+| Quan sát | Uptime, log đã lọc dữ liệu nhạy cảm, cảnh báo lỗi/dung lượng/TLS | Có người nhận và xử lý sự cố |
+| Zalo | VS Code + Zalo Mini App Extension hoặc CLI; trang Quản lý Zalo Mini App | Testing, xét duyệt, Publish đúng phiên bản |
+| Nghiệm thu | Zalo Android/iOS, DevTools, tài khoản thử | Bằng chứng luồng chính hoạt động trên điện thoại |
+
+Phân công tối thiểu: người xác nhận nội dung/dữ liệu chính thức, người vận hành hạ tầng, người có quyền Admin/Developer Mini App, người chấp thuận phát hành, người trực sự cố. Lưu danh sách người phụ trách và cửa sổ phát hành trong biên bản nội bộ, không đưa thông tin nhạy cảm lên Git.
+
+### 17.3. Quy trình từng bước
+
+**Bước 0 — Chốt phạm vi đợt phát hành.**
+
+1. Liệt kê các màn hình/chức năng sẽ công khai: tin tức, hướng dẫn, thủ tục, niêm yết, OA, hotline, tra cứu, phản ánh... Chỉ đưa chức năng có nguồn dữ liệu chính thức và backend thật; hoàn thiện hoặc ẩn phần chưa đạt.
+2. Chốt M4 (phản ánh riêng) có nằm trong đợt đầu không. Nếu có, nghiệm thu quyền truy cập, xác thực và cách xử lý dữ liệu cá nhân.
+3. Xác nhận tên, logo, mô tả, danh mục Mini App, nội dung, liên kết ngoài, nguồn dữ liệu, hotline/địa chỉ/giờ làm việc và quyền sử dụng hình ảnh. Không dùng dữ liệu mock như dữ liệu thật.
+4. Chỉ định người soạn, duyệt, đăng, vận hành và xử lý sự cố.
+
+**Bước 1 — Chuẩn bị hạ tầng production.**
+
+1. Chốt tên miền API và admin do đơn vị phê duyệt; cấu hình DNS, chứng chỉ HTTPS hợp lệ, reverse proxy hoặc HTTPS ingress.
+2. Chạy NestJS backend trên máy chủ/dịch vụ ổn định; build và phục vụ trang admin qua HTTPS. Route /api/v1 của admin phải đi đến **cùng backend production** vì admin/src/services/api.js hiện gọi URL tương đối /api/v1.
+3. Dựng MySQL production với lưu trữ bền vững, giới hạn mạng, tài khoản riêng cho backend. backend/compose.yaml hiện **chỉ dựng MySQL local**, công bố cổng 127.0.0.1:3307; không coi đó là cấu hình production hoàn chỉnh.
+4. Chọn kho upload bền vững, sao lưu database và tệp cùng nhau; kiểm tra quyền truy cập tệp. Thiết lập theo dõi uptime, lỗi API, dung lượng đĩa, TLS hết hạn. Thử khởi động lại và khôi phục từ sao lưu.
+
+**Bước 2 — Cấu hình production và domain Zalo.**
+
+1. Tạo biến môi trường dựa trên .env.example và backend/.env.example, lưu bí mật ở nơi quản lý cấu hình của máy chủ. Xác minh DATABASE_URL, JWT_SECRET, ZALO_APP_ID, ZALO_APP_SECRET, ZALO_OA_SECRET_KEY, CORS_ORIGIN, UPLOAD_DIR. Không commit file .env; không đặt secret trong biến VITE_ vì frontend sẽ chứa giá trị này.
+2. Trước khi build Mini App, đặt VITE_API_BASE_URL thành URL HTTPS đầy đủ tới /api/v1 của backend chính thức. Mã src/services/api/index.js chỉ dùng localhost:3001 khi chạy ở localhost; trên Zalo dùng URL được đóng gói lúc build.
+3. Cấu hình VITE_ZALO_OA_ID và VITE_HOTLINE bằng giá trị đã xác nhận. Kiểm tra không còn request nào đến localhost hoặc trycloudflare.com trong bản định phát hành.
+4. Rà soát CORS ở backend/src/main.ts với origin thực tế của admin và Zalo; kiểm tra bằng Zalo thật. Không mở toàn bộ origin. API và tệp cần HTTPS.
+5. Trên trang Quản lý Mini App → Cấu hình API Domains, thêm tên miền API HTTPS ổn định theo định dạng giao diện Zalo yêu cầu, bật trạng thái cần thiết và lưu. Kiểm tra lại request từ bản Testing. Nếu tải hình/tệp từ domain riêng, kiểm tra cấu hình và quyền tương ứng.
+
+**Bước 3 — Kiểm tra mã, dữ liệu và admin.**
+
+1. Khóa commit phát hành, kiểm tra diff và secret. Ở thư mục gốc chạy npm ci, npm test, npm run build. Ở backend chạy npm ci, npm run typecheck, npm test, npm run build. Ở admin chạy npm ci, npm run build. Chỉ đánh dấu đạt nếu lệnh chạy thành công.
+2. Sao lưu production trước thay đổi schema. Xác nhận DATABASE_URL đang trỏ đúng production rồi chạy npm run prisma:deploy từ backend. Không dùng prisma migrate dev hoặc seed dữ liệu mẫu trên production.
+3. Triển khai backend và admin, kiểm tra API từ mạng ngoài: HTTPS, dữ liệu công khai, quyền 401/403, nội dung nháp không lộ, upload/tệp, đăng nhập và phân quyền admin. Nếu cần giám sát tự động, bổ sung endpoint kiểm tra sức khỏe; không mặc định coi dự án đã có endpoint này.
+4. Đăng và duyệt một bài thử theo quy trình trên admin, xác nhận bản Mini App dùng **cùng database production** rồi thu hồi bài thử theo quy trình nội dung.
+
+**Bước 4 — Deploy Testing và nghiệm thu trên điện thoại.**
+
+1. Trong Zalo Mini App Extension, đăng nhập tài khoản Admin/Developer, xác nhận đúng Mini App ID, chọn **Testing**, viết mô tả phiên bản rồi Deploy. Dự án cũng có lệnh npm run deploy nếu CLI đã cấu hình đúng; đối chiếu môi trường/ID trước khi thực hiện.
+2. Ghi số phiên bản, commit, cấu hình API, thời điểm, QR/deep link và các thay đổi. Mở bằng Zalo trên Android và iOS, thử Wi-Fi/4G, mạng chậm/mất mạng, dữ liệu rỗng và lỗi backend.
+3. Thử trang chủ → danh sách → chi tiết bài/thủ tục/niêm yết, OA, hotline, liên kết ngoài; xin quyền Zalo đúng lúc và thử từ chối. Duyệt một bài trên admin rồi xác nhận bài xuất hiện trên điện thoại sau khi làm mới.
+4. Với dữ liệu cá nhân, dùng hai tài khoản thử khác nhau để chứng minh không xem/sửa chéo. Kiểm tra vai trò biên tập, duyệt và quản trị trên admin.
+5. Ghi lỗi kèm thiết bị, phiên bản Zalo, bước tái hiện, request API, ảnh đã che dữ liệu nhạy cảm. Sửa rồi tạo Testing mới, nghiệm thu lại. Tài khoản thường chỉ kiểm chứng khả năng truy cập công khai sau Publish.
+
+**Bước 5 — Gửi xét duyệt phiên bản.**
+
+1. Vào Trang Quản lý Zalo Mini App → Quản lý phiên bản / Danh sách phiên bản, chọn đúng bản **Testing** đã nghiệm thu, nhấn **Submit for review**.
+2. Điền mô tả/hướng dẫn kiểm thử mà cổng yêu cầu. Đảm bảo tên, logo, danh mục, chức năng, liên kết và quyền Zalo khớp khai báo; cung cấp luồng/tài khoản thử nếu giao diện yêu cầu.
+3. Theo dõi trạng thái **Chờ xét duyệt**. Nếu Zalo yêu cầu sửa, ghi phản hồi, sửa, deploy Testing mới và gửi lại. Không nhầm “Đã xác thực Mini App” với “Đã duyệt phiên bản”.
+
+**Bước 6 — Publish sau khi được duyệt.**
+
+1. Điều kiện quyết định: phiên bản **Đã duyệt**; backend/admin và domain ổn định; sao lưu khôi phục được; nội dung được đơn vị xác nhận; có người trực và chấp thuận phát hành.
+2. Đối chiếu số phiên bản, ghi chú, commit; chọn **Publish** đúng bản Đã duyệt. Ghi thời điểm và người thao tác.
+3. Mở Mini App bằng tài khoản Zalo **ngoài nhóm Admin/Developer** để xác nhận truy cập, bài mới, chi tiết, liên kết và API. Chỉ truyền thông/đặt QR công khai sau kiểm tra thực tế.
+4. Theo dõi lỗi và phản hồi trong 24–72 giờ đầu.
+
+**Bước 7 — Vận hành và phương án quay lại.**
+
+1. Theo dõi API/MySQL, log lỗi đã lọc, thời gian tải, dung lượng và sao lưu; kiểm thử khôi phục định kỳ.
+2. Mỗi thay đổi code Mini App: build với URL production → Testing → nghiệm thu → xét duyệt → Publish bản Đã duyệt. Bài viết mới đi qua admin/API/database và quy trình duyệt nội dung, thông thường không cần deploy lại gói Mini App.
+3. Giữ tag/build/cấu hình bản ổn định trước. Khi sự cố, khôi phục backend ổn định và chọn lại phiên bản Zalo đã duyệt nếu cổng cho phép. Kiểm tra tương thích schema; không tự hoàn tác migration hoặc ghi đè database khi chưa có kế hoạch và sao lưu đã thử.
+
+### 17.4. Checklist sẵn sàng công khai
+
+- [ ] Tên miền, hạ tầng, người phụ trách và phạm vi phát hành được đơn vị phê duyệt.
+- [ ] API/admin production có HTTPS, hoạt động từ mạng ngoài; API domain được cấu hình trong Zalo.
+- [ ] MySQL/upload bền vững, sao lưu và khôi phục thử thành công.
+- [ ] Secret nằm ngoài Git/frontend; quyền backend, CORS và dữ liệu cá nhân được kiểm thử.
+- [ ] Không còn mock, localhost hoặc Quick Tunnel trong bản Zalo phát hành; nội dung là dữ liệu đã xác nhận.
+- [ ] Test/build Mini App, backend, admin đạt; không còn lỗi nghiêm trọng.
+- [ ] Admin đăng/duyệt bài và Zalo Android/iOS nhận được dữ liệu thật; luồng lỗi/mất mạng đúng.
+- [ ] Tên, logo, mô tả, danh mục, liên kết, quyền Zalo khớp hồ sơ xét duyệt.
+- [ ] Đúng phiên bản Testing có trạng thái **Đã duyệt**.
+- [ ] Người có thẩm quyền chấp thuận Publish; có người trực và phương án quay lại.
+- [ ] Đã Publish; tài khoản Zalo thông thường mở được ứng dụng và dữ liệu production.
+
+**Tài liệu chính thức để đối chiếu khi thao tác:** [Phát hành Zalo Mini App](https://docs.zaloplatforms.com/docs/MA/intro/public-mini-program), [Deploy bằng VS Code Extension](https://docs.zaloplatforms.com/docs/MA/devtools/ext/deploy). Nhãn nút và quy trình cổng quản lý có thể thay đổi; đối chiếu giao diện/tài liệu Zalo tại ngày phát hành.
