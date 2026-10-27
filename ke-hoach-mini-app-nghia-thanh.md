@@ -395,3 +395,130 @@ Phân công tối thiểu: người xác nhận nội dung/dữ liệu chính th
 - [ ] Đã Publish; tài khoản Zalo thông thường mở được ứng dụng và dữ liệu production.
 
 **Tài liệu chính thức để đối chiếu khi thao tác:** [Phát hành Zalo Mini App](https://docs.zaloplatforms.com/docs/MA/intro/public-mini-program), [Deploy bằng VS Code Extension](https://docs.zaloplatforms.com/docs/MA/devtools/ext/deploy). Nhãn nút và quy trình cổng quản lý có thể thay đổi; đối chiếu giao diện/tài liệu Zalo tại ngày phát hành.
+
+## 18. Kế hoạch chức năng lấy số thứ tự và đặt lịch hẹn
+
+### 18.1. Mục tiêu và phạm vi
+
+Xây dựng hai cách phục vụ qua các kênh người dân đang dùng:
+
+- **Mini App — lấy số trong ngày:** người dân chọn lĩnh vực/thủ tục, hệ thống xác định quầy, cấp số duy nhất theo ngày và quầy, cho xem trạng thái hàng chờ.
+- **Zalo Official Account (OA) — đặt lịch trước:** người dân bắt đầu từ OA và đặt lịch cho lĩnh vực/quầy, ngày và khung giờ còn chỗ. OA có thể mở Mini App để hoàn tất biểu mẫu; backend dự án vẫn là nguồn dữ liệu và quy tắc chính. Không giả định OA tự có hệ thống giữ lịch nếu chưa tích hợp/kiểm chứng API hoặc cơ chế biểu mẫu cụ thể.
+- **Admin/quầy — vận hành:** cán bộ quản lý lĩnh vực, giờ làm, hạn mức, xem danh sách, gọi lượt và cập nhật trạng thái lịch hẹn/số thứ tự.
+
+Hai luồng phải dùng **cùng backend và database** để nhìn được tổng tải của từng quầy, tránh vượt năng lực phục vụ. Không cấp số hoặc giữ chỗ chỉ bằng logic trên điện thoại/OA.
+
+### 18.2. Quy tắc nghiệp vụ cần xác nhận
+
+Trước khi code, lập biên bản xác nhận các mục dưới đây; chưa có số liệu thì không tự đặt mặc định trong production:
+
+1. Mã và tên lĩnh vực; thủ tục nào thuộc lĩnh vực/quầy nào; người chịu trách nhiệm cập nhật danh mục khi phân công quầy thay đổi.
+2. Giờ hoạt động, ngày nghỉ/lịch đặc biệt, thời điểm mở và đóng lấy số/đặt lịch, múi giờ áp dụng.
+3. Sức chứa theo quầy/ngày/khung giờ; phần chỗ dành cho lịch hẹn, lấy số trong ngày và người đến trực tiếp; quy tắc điều chuyển chỗ chưa dùng giữa các nhóm.
+4. Đặt lịch xác nhận ngay hay chờ cán bộ duyệt; khoảng thời gian được đặt trước; độ dài khung giờ; số lịch mỗi khung.
+5. Số thứ tự đánh lại theo ngày hay theo quầy; có hàng chờ riêng theo quầy không; số ưu tiên theo quy định/quy trình địa phương và cách cán bộ nhập số tại chỗ.
+6. Quy tắc đến trễ, không đến, hủy/đổi lịch, gọi lại, chuyển quầy, hồ sơ thiếu, mất điện/mạng và đóng quầy đột xuất.
+7. Thông tin tối thiểu cần nhận từ người dân, có cần xác minh số điện thoại không, ai được xem, thời hạn lưu và cách xử lý yêu cầu xóa/đính chính.
+8. Cách OA bắt đầu đặt lịch: menu/nút dẫn đến Mini App, liên kết sâu theo lĩnh vực, hay API/biểu mẫu OA được nền tảng hỗ trợ. Xác minh quyền, điều kiện gửi tin nhắc và chi phí/quota trước khi đưa vào phạm vi.
+
+### 18.3. Luồng người dân
+
+**Lấy số trong ngày trên Mini App**
+
+1. Chọn “Lấy số” → chọn lĩnh vực hoặc thủ tục; nếu chọn thủ tục thì hiển thị quầy theo danh mục chính thức.
+2. Hiển thị quầy, giờ nhận, tình trạng còn nhận số và ước tính chờ nếu có dữ liệu đáng tin cậy.
+3. Người dân xác nhận; backend kiểm tra giờ hoạt động, trạng thái quầy, hạn mức, giới hạn mỗi người và yêu cầu lặp.
+4. Backend cấp mã/số duy nhất trong một giao dịch, lưu vào hàng chờ ngày/quầy và trả biên nhận có số, lĩnh vực/quầy, thời gian cấp, hướng dẫn đến quầy và cách tra cứu.
+5. Màn hình “Số của tôi” hiển thị trạng thái và số đang được phục vụ. Cho phép hủy theo thời hạn/quy tắc đã duyệt.
+6. Khi đến lượt, hiển thị lời nhắc trong app nếu app đang mở; không cam kết thông báo đẩy/OA cho đến khi xác minh quyền và chi phí.
+
+**Đặt lịch từ Zalo OA**
+
+1. Người dân bấm nút đặt lịch tại OA; OA mở Mini App vào luồng đặt lịch hoặc cơ chế khác đã được xác nhận hỗ trợ.
+2. Chọn lĩnh vực/thủ tục → ngày còn chỗ → khung giờ → điền dữ liệu tối thiểu → xem lại và xác nhận.
+3. Backend giữ chỗ ngắn hạn trong lúc xác nhận nếu quy trình có nhiều màn hình; chỗ giữ hết hạn được giải phóng. Khi xác nhận thành công, tạo lịch với mã tra cứu và hướng dẫn chuẩn bị.
+4. OA gửi đường dẫn bắt đầu luồng và/hoặc thông báo xác nhận chỉ khi cơ chế này được cấu hình, cấp quyền và chính sách cho phép; luôn có màn hình tra cứu trong Mini App làm kênh dự phòng.
+5. Khi đến Trung tâm, cán bộ tra lịch bằng mã/QR hoặc danh sách trong Admin; xác nhận có mặt và đưa vào hàng phục vụ theo quy tắc ưu tiên đã thống nhất. Không tự giả định lịch hẹn được phục vụ trước mọi số đang chờ.
+
+### 18.4. Ghép lịch hẹn với hàng chờ
+
+- Mỗi quầy có cấu hình năng lực theo ngày/khung; tổng chỗ đã giữ cho lịch + số đã cấp online + phần dự phòng tiếp dân không vượt mức được duyệt.
+- Trung tâm cần chọn mô hình phục vụ:
+  - **Hai nguồn hạn mức, một hàng phục vụ:** lịch hẹn có giờ đến; khi check-in được nhập vào thứ tự phục vụ chung theo quy tắc đã công bố.
+  - **Hai hàng phục vụ có quy tắc ưu tiên:** cán bộ gọi từ danh sách lịch và danh sách bốc số theo tỷ lệ/quy tắc được phê duyệt.
+- Đề xuất khởi đầu với hạn mức lịch hẹn riêng, hạn mức lấy số trong ngày riêng và phần lượt trực tiếp. Cán bộ được quyền điều chỉnh hạn mức tương lai theo phân quyền; thay đổi phải có audit log.
+- Định nghĩa thời gian ân hạn của lịch; sau đó chuyển trạng thái “Vắng mặt” hoặc cho check-in muộn theo quyết định nghiệp vụ. Không tự động xóa lịch.
+- Hàng chờ công khai chỉ dùng mã/số và thông tin không nhận dạng cá nhân. Danh sách có tên/điện thoại chỉ cho cán bộ đúng quyền.
+
+### 18.5. Trạng thái và thao tác
+
+**Số thứ tự:** Đã cấp → Đang chờ → Đang gọi → Đang phục vụ → Hoàn tất. Nhánh ngoại lệ: Đã hủy, Vắng mặt, Đã chuyển quầy. Thống nhất có cần trạng thái “Gọi lại” hay ghi thành sự kiện gọi lại.
+
+**Lịch hẹn:** Chờ duyệt (chỉ nếu quy trình yêu cầu) → Đã xác nhận → Đã check-in → Đang phục vụ → Hoàn tất. Nhánh ngoại lệ: Đã hủy, Đổi lịch, Vắng mặt, Từ chối. Mỗi lần đổi lịch tạo lịch sử, không ghi đè dấu vết cũ.
+
+Mỗi thao tác đổi trạng thái phải kiểm tra quyền ở backend, trạng thái hiện tại, lưu người thao tác/thời điểm/lý do cần thiết; thao tác không hợp lệ phải trả lỗi rõ ràng.
+
+### 18.6. Dữ liệu và API cần thiết
+
+Thiết kế Prisma/MySQL và API sau khi nghiệp vụ được ký xác nhận. Nhóm thực thể dự kiến:
+
+- **ServiceField/ServiceCategory:** lĩnh vực/thủ tục, quầy phụ trách, trạng thái công khai.
+- **Counter:** mã quầy, tên, lĩnh vực, trạng thái hoạt động.
+- **CounterSchedule:** ngày/khung giờ, sức chứa, số chỗ dành cho lịch, bốc số, trực tiếp; ngày nghỉ/ngoại lệ.
+- **QueueTicket:** ngày phục vụ, quầy, số hiển thị, mã tra cứu khó đoán, người tạo nếu đã định danh, trạng thái và thời điểm.
+- **Appointment:** quầy/lĩnh vực, khung giờ, mã tra cứu, thông tin tối thiểu, trạng thái, lịch sử đổi/hủy.
+- **QueueEvent/AuditLog:** gọi, gọi lại, bỏ qua, check-in, chuyển quầy, hoàn tất và người thực hiện.
+
+Nhóm API dự kiến:
+
+- Công khai: danh sách lĩnh vực/quầy đang mở; lịch còn chỗ; tạo số; tra cứu mã; tạo/hủy/đổi lịch theo xác thực.
+- Admin: cấu hình giờ và hạn mức; xem hàng chờ/lịch theo ngày-quầy; cấp số trực tiếp; gọi/gọi lại/bỏ qua/chuyển/hoàn tất; check-in, duyệt/hủy/đổi lịch; xem audit.
+- Không đưa API key/secret OA vào Mini App. Nếu dùng OA webhook/API, kiểm tra chữ ký ở backend và chống xử lý lặp. Không tin userId, vai trò hoặc trạng thái do client tự gửi.
+
+### 18.7. Đồng thời, chống trùng và bảo mật
+
+- Tạo số và đặt lịch phải dùng transaction/khóa phù hợp và ràng buộc duy nhất trong database, ví dụ số theo ngày-quầy và một chỗ của slot chỉ được nhận một lần. Không đọc số kế tiếp rồi tự tăng ở frontend.
+- Dùng khóa idempotency cho yêu cầu tạo số/đặt lịch để gửi lại khi mất mạng không tạo yêu cầu thứ hai.
+- Backend kiểm tra giờ nhận, quầy còn mở, lịch còn chỗ, giới hạn mỗi người và quyền cán bộ; giới hạn tần suất và chống dò mã tra cứu.
+- QR chỉ chứa mã ngẫu nhiên/định danh tra cứu tối thiểu, không chứa tên, số điện thoại hoặc dữ liệu hồ sơ dạng đọc được.
+- Thu thập tối thiểu dữ liệu cá nhân; nêu mục đích, thời hạn lưu và phân quyền. Không ghi nội dung cá nhân hoặc token vào log thường.
+- Chốt thời hạn lưu dữ liệu với đơn vị và người phụ trách dữ liệu trước khi chạy thật.
+
+### 18.8. Màn hình cần bổ sung
+
+**Mini App:** chọn lĩnh vực/thủ tục; xác nhận lấy số; biên nhận và “Số của tôi”; hàng chờ/số đang gọi; chọn ngày và khung giờ; xác nhận lịch; tra cứu/hủy/đổi lịch; hướng dẫn giấy tờ và trạng thái đang tải/rỗng/lỗi/mất mạng.
+
+**Trang quản trị:** cấu hình quầy/lĩnh vực/giờ/ngày nghỉ/hạn mức; bảng hàng chờ theo quầy; điều khiển gọi số; danh sách lịch theo ngày/khung; tìm theo mã tra cứu; check-in và xử lý vắng/đổi/hủy; lịch sử thao tác. Tách quyền xem dữ liệu cá nhân khỏi quyền gọi số nếu nghiệp vụ cần.
+
+**OA:** mục/nút đặt lịch và đường dẫn Mini App có tham số điều hướng được kiểm tra an toàn. Không hiển thị hoặc gửi thông tin cá nhân trong hội thoại/log nếu không cần.
+
+### 18.9. Lộ trình triển khai
+
+1. **Chốt nghiệp vụ và prototype:** xác nhận quy tắc tại mục 18.2, lập sơ đồ lĩnh vực-quầy, bảng công suất, chính sách riêng tư; duyệt prototype với cán bộ.
+2. **Làm hàng chờ:** migration, cấu hình quầy/giờ/hạn mức, cấp số an toàn khi nhiều người thao tác đồng thời, trang Admin gọi số và Mini App nhận/tra số. Thử nội bộ tại một quầy.
+3. **Làm đặt lịch:** khung giờ theo năng lực quầy, giữ chỗ/chống trùng, tạo/tra/hủy/đổi lịch, Admin check-in và cập nhật trạng thái.
+4. **Kết nối OA:** trước hết thêm nút OA dẫn vào Mini App; chỉ thêm webhook, xác nhận/nhắc tin sau khi xác minh tài liệu, quyền, hạn mức và chi phí. OA không là database thứ hai.
+5. **Pilot:** triển khai một hoặc hai lĩnh vực đã chọn trong Testing; cán bộ ghi nhận cả lượt trực tiếp; so sánh với vận hành thực tế, điều chỉnh hạn mức/quy tắc.
+6. **Mở rộng:** đào tạo các quầy, chuẩn bị hỗ trợ sự cố, nghiệm thu và phát hành theo quy trình M5. Thay đổi gói Mini App phải qua Testing, xét duyệt và Publish theo trạng thái Zalo yêu cầu.
+
+### 18.10. Kiểm thử nghiệm thu
+
+- Hai yêu cầu lấy số đồng thời không nhận cùng số; hai người không chiếm cùng chỗ cuối của một khung giờ.
+- Gửi lặp do timeout chỉ tạo một ticket/lịch; rời màn hình không giữ chỗ vô thời hạn.
+- Đóng quầy/ngày nghỉ/hết hạn mức thì không cấp số/không nhận lịch; lỗi có hướng dẫn rõ.
+- Lịch từ OA/Mini App và số tại quầy cùng cập nhật vào một nguồn dữ liệu; tổng lượt không vượt cấu hình.
+- Nhân viên chỉ thao tác đúng quầy/role; mọi chuyển trạng thái có audit; người dân không xem dữ liệu người khác bằng cách đổi ID.
+- Hủy/đổi/đến trễ/vắng mặt/gọi lại/chuyển quầy/mất mạng/khôi phục dịch vụ đúng quy trình đã duyệt.
+- Thử Android/iOS trên Zalo thật, tài khoản thử nghiệm; kiểm tra tải đồng thời và backup/restore.
+- Nghiệm thu nội dung thông báo, QR, thời gian chờ và hướng dẫn để không hứa thời điểm phục vụ chính xác khi hệ thống chỉ có ước tính.
+
+### 18.11. Điều kiện hoàn thành
+
+- [ ] Trung tâm duyệt bảng lĩnh vực-quầy, giờ, sức chứa, ưu tiên, quy tắc trễ/vắng/hủy và phương án mất mạng.
+- [ ] Mini App cấp số và đặt lịch không trùng; Admin vận hành được hàng chờ/lịch.
+- [ ] OA dẫn đúng vào luồng đã chọn; notification chỉ bật khi quyền/quota/chi phí được xác nhận.
+- [ ] Dữ liệu nghiệp vụ dùng backend/database staging hoặc production; không dùng mock khi nghiệm thu nghiệp vụ.
+- [ ] Phân quyền, riêng tư, audit, sao lưu và khôi phục đạt kiểm thử.
+- [ ] Pilot tại quầy được cán bộ nghiệm thu; có hướng dẫn người dân và tài liệu vận hành.
+- [ ] Deploy Testing, thử Zalo thật, xét duyệt và Publish theo mục M5 trước khi mở công khai.
+
