@@ -6,7 +6,11 @@ export function useZaloAction() {
   return async (action) => {
     try { await action(); }
     catch (error) {
-      openSnackbar({ text: error?.message || "Chưa thực hiện được thao tác. Vui lòng thử lại trong Zalo.", type: "error" });
+      const msg = String(error?.message || "");
+      if (error?.code === -201 || /user rejected|cancel/i.test(msg)) {
+        return;
+      }
+      openSnackbar({ text: msg || "Chưa thực hiện được thao tác. Vui lòng thử lại trong Zalo.", type: "error" });
     }
   };
 }

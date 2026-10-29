@@ -16,6 +16,7 @@ import PostsPage from "../pages/posts";
 import PostDetailPage from "../pages/post-detail";
 import NoticesPage from "../pages/notices";
 import AccountPage from "../pages/account";
+import QueuePage from "../pages/queue";
 
 const Layout = () => {
   return (
@@ -24,6 +25,7 @@ const Layout = () => {
         <ZMPRouter>
           <AnimationRoutes>
             <Route path="/" element={<HomePage />} />
+            <Route path="/queue" element={<QueuePage />} />
             <Route path="/procedures" element={<ProceduresPage />} />
             <Route path="/procedures/:id" element={<ProcedureDetailPage />} />
             <Route path="/posts" element={<PostsPage />} />

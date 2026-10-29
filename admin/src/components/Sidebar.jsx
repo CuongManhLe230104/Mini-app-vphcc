@@ -4,6 +4,7 @@ import "./Sidebar.css";
 
 const NAV_ITEMS = [
   { to: "/",           label: "Tổng quan",       icon: "📊", exact: true },
+  { to: "/queue",      label: "Số thứ tự & Lịch hẹn", icon: "🎫", roles: ["SUPER_ADMIN", "COUNTER_STAFF"] },
   { to: "/procedures", label: "Thủ tục HC",      icon: "📋" },
   { to: "/posts",      label: "Tin tức & Hướng dẫn", icon: "📰" },
   { to: "/notices",    label: "Niêm yết",         icon: "📌" },
@@ -13,10 +14,11 @@ const NAV_ITEMS = [
 ];
 
 const ROLE_LABELS = {
-  SUPER_ADMIN: { label: "Quản trị viên", color: "#7C3AED" },
-  EDITOR:      { label: "Biên tập viên",  color: "#0068FF" },
-  REVIEWER:    { label: "Người duyệt",    color: "#00B14F" },
-  HANDLER:     { label: "Cán bộ xử lý",  color: "#FF6B00" },
+  SUPER_ADMIN:   { label: "Quản trị viên", color: "#7C3AED" },
+  EDITOR:        { label: "Biên tập viên",  color: "#0068FF" },
+  REVIEWER:      { label: "Người duyệt",    color: "#00B14F" },
+  HANDLER:       { label: "Cán bộ xử lý",  color: "#FF6B00" },
+  COUNTER_STAFF: { label: "Cán bộ quầy",    color: "#0D9488" },
 };
 
 export default function Sidebar() {
@@ -43,7 +45,7 @@ export default function Sidebar() {
 
       {/* Navigation */}
       <nav className="sidebar-nav">
-        {NAV_ITEMS.filter(item => !item.role || item.role === user?.role).map(item => (
+        {NAV_ITEMS.filter(item => (!item.role || item.role === user?.role) && (!item.roles || item.roles.includes(user?.role))).map(item => (
           <NavLink
             key={item.to}
             to={item.to}

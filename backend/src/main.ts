@@ -10,37 +10,25 @@ async function bootstrap() {
   // Validation pipe toàn cục
   app.useGlobalPipes(createValidationPipe());
 
-  // CORS
-  const configuredOrigins = config
-    .get<string>('CORS_ORIGIN', 'http://localhost:4000,http://localhost:3000')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean);
-  const allowedOrigins = Array.from(
-    new Set([
-      ...configuredOrigins,
-      'http://localhost:3000',
-      'http://localhost:2999',
-      'http://127.0.0.1:3000',
-      'http://127.0.0.1:2999',
-      'http://localhost:4000',
-      'https://h5.zdn.vn',
-      'https://h5.zadn.vn',
-    ]),
-  );
+  // Tắt ETag để tránh lỗi 304 Not Modified làm rỗng dữ liệu hoặc lỗi cache CORS trên WebView điện thoại
+  const expressApp = app.getHttpAdapter().getInstance();
+  expressApp.set('etag', false);
+  expressApp.use((req: any, res: any, next: () => void) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.on('finish', () => {
+      console.log(
+        `[API] ${req.method} ${req.originalUrl} -> ${res.statusCode} (Origin: ${req.headers.origin || 'none'})`,
+      );
+    });
+    next();
+  });
+
+  // Cho phép mọi Origin từ Zalo WebView (zdn.vn, zadn.vn, zalo.me, zaloplatforms.com, null, localhost...)
   app.enableCors({
-    origin: (origin, callback) => {
-      if (
-        !origin ||
-        allowedOrigins.includes(origin) ||
-        /^https:\/\/([a-z0-9-]+\.)?(zdn|zadn|zalo)\.vn$/i.test(origin)
-      ) {
-        callback(null, true);
-      } else {
-        callback(null, false);
-      }
-    },
+    origin: true,
     credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'ngrok-skip-browser-warning', 'Idempotency-Key'],
   });
 
   // Prefix API

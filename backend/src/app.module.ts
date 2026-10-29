@@ -8,6 +8,7 @@ import { ContentModule } from './content/content.module';
 import { NoticesModule } from './notices/notices.module';
 import { FaqsModule } from './faqs/faqs.module';
 import { AuditModule } from './audit/audit.module';
+import { QueueModule } from './queue/queue.module';
 
 @Controller()
 class AppController {
@@ -23,6 +24,7 @@ class AppController {
         '/api/v1/posts',
         '/api/v1/notices',
         '/api/v1/faqs',
+        '/api/v1/queue/catalog',
       ],
     };
   }
@@ -39,6 +41,7 @@ class AppController {
     NoticesModule,
     FaqsModule,
     AuditModule,
+    QueueModule,
   ],
   controllers: [AppController],
 })

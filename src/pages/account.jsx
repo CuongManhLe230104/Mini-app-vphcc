@@ -3,7 +3,7 @@ import RemoteState, { Pagination } from "../components/remote-state";
 import { Box, Header, Icon, Page, Text } from "zmp-ui";
 
 import { useZaloAction } from "../components/use-zalo-action";
-import { callHotline, followZaloOA, openServicePortal, openZaloChat } from "../services/zalo";
+import { callHotline, openServicePortal, openZaloChat } from "../services/zalo";
 
 const FEEDBACK_PORTAL_URL = "https://dichvucong.gov.vn/nop-phan-anh-kien-nghi?typeInapp=1";
 
@@ -48,10 +48,6 @@ function AccountPage() {
     runZaloAction(() => openZaloChat(centerInfo.oaId));
   }
 
-  function handleFollowOA() {
-    runZaloAction(() => followZaloOA(centerInfo.oaId));
-  }
-
   return (
     <Page className="bg-gray-50 page-with-header">
       <Header title="Của tôi" showBackIcon={false} />
@@ -89,15 +85,8 @@ function AccountPage() {
             icon="zi-chat"
             iconBg="bg-blue-100"
             label="Nhắn tin qua Zalo OA"
-            sublabel={centerInfo.oaId ? "Trung tâm PVHCC" : "Chưa cấu hình OA"}
+            sublabel={centerInfo.oaId ? "Chuyển đến khung chat Zalo OA Trung tâm" : "Chưa cấu hình OA"}
             onClick={handleChat}
-          />
-          <ActionRow
-            icon="zi-star"
-            iconBg="bg-yellow-100"
-            label="Quan tâm Zalo OA"
-            sublabel="Nhận thông báo từ trung tâm"
-            onClick={handleFollowOA}
           />
           <ActionRow
             icon="zi-edit-text"

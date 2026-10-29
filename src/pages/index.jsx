@@ -3,7 +3,7 @@ import RemoteState, { Pagination } from "../components/remote-state";
 import { useNavigate } from "react-router-dom";
 import { Box, Button, Header, Icon, Page, Text } from "zmp-ui";
 
-import { callHotline, followZaloOA, openServicePortal } from "../services/zalo";
+import { callHotline, openServicePortal, openZaloChat } from "../services/zalo";
 import Logo from "../components/logo";
 import { useZaloAction } from "../components/use-zalo-action";
 
@@ -11,6 +11,20 @@ const FEEDBACK_PORTAL_URL = "https://dichvucong.gov.vn/nop-phan-anh-kien-nghi?ty
 
 /** Danh sách tiện ích nhanh trên trang chủ */
 const QUICK_SERVICES = [
+  {
+    label: "Lấy số",
+    icon: "zi-clock-1",
+    color: "bg-indigo-50 text-indigo-600",
+    action: "nav",
+    to: "/queue?tab=ticket",
+  },
+  {
+    label: "Đặt lịch",
+    icon: "zi-calendar",
+    color: "bg-teal-50 text-teal-600",
+    action: "nav",
+    to: "/queue?tab=appointment",
+  },
   { label: "Hỏi đáp", icon: "zi-help-circle", color: "bg-blue-50 text-blue-600", action: "nav", to: "/faqs" },
   {
     label: "Thủ tục",
@@ -95,7 +109,7 @@ function HomePage() {
     else if (svc.action === "hotline") runZaloAction(() => callHotline(centerInfo.hotline));
     else if (svc.action === "feedback") runZaloAction(() => openServicePortal(FEEDBACK_PORTAL_URL));
     else if (svc.action === "oa") {
-      runZaloAction(() => followZaloOA(centerInfo.oaId));
+      runZaloAction(() => openZaloChat(centerInfo.oaId));
     }
   }
 
