@@ -10,6 +10,7 @@ import PostsPage from "./pages/PostsPage";
 import NoticesPage from "./pages/NoticesPage";
 import FaqsPage from "./pages/FaqsPage";
 import CenterPage from "./pages/CenterPage";
+import QueuePage from "./pages/QueuePage";
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route element={<AdminLayout />}>
               <Route index element={<DashboardPage />} />
+              <Route path="queue" element={<QueuePage />} />
               <Route path="procedures" element={<ProceduresPage />} />
               <Route path="posts" element={<PostsPage />} />
               <Route path="notices" element={<NoticesPage />} />

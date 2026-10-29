@@ -47,8 +47,9 @@ async function request(path, options = {}) {
 }
 
 const get  = (path, opts = {}) => request(path, { ...opts, method: "GET" });
-const post = (path, body, opts = {}) => request(path, { ...opts, method: "POST",  body: JSON.stringify(body) });
-const patch = (path, body, opts = {}) => request(path, { ...opts, method: "PATCH", body: JSON.stringify(body) });
+const post = (path, body, opts = {}) => request(path, { ...opts, method: "POST",  body: JSON.stringify(body ?? {}) });
+const patch = (path, body, opts = {}) => request(path, { ...opts, method: "PATCH", body: JSON.stringify(body ?? {}) });
+const put  = (path, body, opts = {}) => request(path, { ...opts, method: "PUT",   body: JSON.stringify(body ?? {}) });
 const del  = (path, opts = {}) => request(path, { ...opts, method: "DELETE" });
 
 export const api = {
@@ -101,5 +102,31 @@ export const api = {
   createFaq: (data) => post("/faqs", data),
   updateFaq: (id, data) => patch(`/faqs/${id}`, data),
   deleteFaq: (id) => del(`/faqs/${id}`),
+
+  // Queue & Appointments (Vận hành quầy & Cấu hình)
+  getQueueCounters: () => get("/queue/admin/counters"),
+  getCounterBoard: (counterId, date) => get(`/queue/admin/counters/${counterId}/board${date ? `?date=${encodeURIComponent(date)}` : ""}`),
+  getCounterEvents: (counterId, date) => get(`/queue/admin/counters/${counterId}/events${date ? `?date=${encodeURIComponent(date)}` : ""}`),
+  lookupQueueCode: (code) => get(`/queue/admin/lookup/${encodeURIComponent(code)}`),
+  issueWalkInTicket: (counterId, data, idempotencyKey) =>
+    post(`/queue/admin/counters/${counterId}/walk-in`, data, idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : {}),
+  callNextTicket: (counterId) => post(`/queue/admin/counters/${counterId}/call-next`, {}),
+  recallTicket: (ticketId) => post(`/queue/admin/tickets/${ticketId}/recall`, {}),
+  serveTicket: (ticketId) => post(`/queue/admin/tickets/${ticketId}/serve`, {}),
+  completeTicket: (ticketId) => post(`/queue/admin/tickets/${ticketId}/complete`, {}),
+  noShowTicket: (ticketId, reason) => post(`/queue/admin/tickets/${ticketId}/no-show`, { reason }),
+  transferTicket: (ticketId, data) => post(`/queue/admin/tickets/${ticketId}/transfer`, data),
+  checkInAppointment: (appointmentId) => post(`/queue/admin/appointments/${appointmentId}/check-in`, {}),
+  noShowAppointment: (appointmentId, reason) => post(`/queue/admin/appointments/${appointmentId}/no-show`, { reason }),
+  cancelAdminAppointment: (appointmentId, reason) => post(`/queue/admin/appointments/${appointmentId}/cancel`, { reason }),
+
+  // Cấu hình quầy (SUPER_ADMIN)
+  getStaffCandidates: () => get("/queue/admin/staff-candidates"),
+  createCounter: (data) => post("/queue/admin/counters", data),
+  updateCounter: (counterId, data) => patch(`/queue/admin/counters/${counterId}`, data),
+  setCounterSchedules: (counterId, windows) => put(`/queue/admin/counters/${counterId}/schedules`, { windows }),
+  addCounterClosure: (counterId, data) => post(`/queue/admin/counters/${counterId}/closures`, data),
+  removeCounterClosure: (counterId, closureId) => del(`/queue/admin/counters/${counterId}/closures/${closureId}`),
+  setCounterStaff: (counterId, adminIds) => put(`/queue/admin/counters/${counterId}/staff`, { adminIds }),
 };
 

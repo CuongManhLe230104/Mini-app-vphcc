@@ -129,3 +129,44 @@ test('empty center data is reported explicitly instead of returning invented con
   await assert.rejects(() => service.getCenterInfo(), e => e.getStatus() === 404);
   await assert.rejects(() => service.updateCenterInfo({ name: 'Tên mới' }), e => e.getStatus() === 400);
 });
+
+test('queue readiness requires active counter, field, schedule and non-null quotas', () => {
+  const { evaluateReadiness, validateCounterConfig } = source('queue/queue-rules.ts');
+  const unconfigured = {
+    isActive: false, ticketEnabled: false, appointmentEnabled: false,
+    dailyCapacity: null, ticketQuota: null, appointmentQuota: null, walkInQuota: null,
+    slotMinutes: null, slotCapacity: null, bookingMinLeadMinutes: null,
+    bookingMaxDaysAhead: null, maxActiveTicketsPerCitizen: null, maxActiveAppointmentsPerCitizen: null,
+  };
+  const r0 = evaluateReadiness(unconfigured, 0, 0);
+  assert.equal(r0.ticket.ready, false);
+  assert.equal(r0.appointment.ready, false);
+  assert.ok(validateCounterConfig({ ...unconfigured, ticketEnabled: true }));
+  assert.ok(validateCounterConfig({ ...unconfigured, dailyCapacity: 10, ticketQuota: 6, appointmentQuota: 6 }));
+  const readyCfg = {
+    ...unconfigured, isActive: true, ticketEnabled: true, appointmentEnabled: true,
+    dailyCapacity: 50, ticketQuota: 20, appointmentQuota: 20, walkInQuota: 10,
+    slotMinutes: 30, slotCapacity: 2, bookingMaxDaysAhead: 7,
+    maxActiveTicketsPerCitizen: 1, maxActiveAppointmentsPerCitizen: 2,
+  };
+  assert.equal(validateCounterConfig(readyCfg), null);
+  const r1 = evaluateReadiness(readyCfg, 1, 1);
+  assert.equal(r1.ticket.ready, true);
+  assert.equal(r1.appointment.ready, true);
+});
+
+test('queue schedule validation, slot generation, state transitions and lookup masking', () => {
+  const { validateScheduleWindows, generateSlots } = source('queue/queue-time.ts');
+  const { canTransitionTicket, canTransitionAppointment, generateLookupCode, LOOKUP_CODE_RE, maskPhone } = source('queue/queue-rules.ts');
+  assert.equal(validateScheduleWindows([{ weekday: 1, startTime: '07:30', endTime: '11:30' }, { weekday: 1, startTime: '13:30', endTime: '17:00' }]), null);
+  assert.ok(validateScheduleWindows([{ weekday: 1, startTime: '08:00', endTime: '10:00' }, { weekday: 1, startTime: '09:30', endTime: '11:00' }]));
+  assert.deepEqual(generateSlots([{ startTime: '08:00', endTime: '09:00' }], 30), ['08:00', '08:30']);
+  assert.equal(canTransitionTicket('WAITING', 'CALLING'), true);
+  assert.equal(canTransitionTicket('WAITING', 'COMPLETED'), false);
+  assert.equal(canTransitionAppointment('CONFIRMED', 'CHECKED_IN'), true);
+  assert.equal(canTransitionAppointment('COMPLETED', 'CANCELLED'), false);
+  assert.match(generateLookupCode('T'), LOOKUP_CODE_RE);
+  assert.match(generateLookupCode('A'), LOOKUP_CODE_RE);
+  assert.equal(maskPhone('0901234567'), '*******567');
+});
+

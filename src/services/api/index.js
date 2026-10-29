@@ -1,11 +1,14 @@
 /** Gọi API tập trung; ưu tiên backend local khi chạy trên localhost và dùng VITE_API_BASE_URL khi chạy trên Zalo. */
 const ENV_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(/\/$/, "");
-const IS_LOCAL_HOST = typeof location !== "undefined" && /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+const IS_LOCAL_HOST = typeof location !== "undefined" && /^(localhost|127\.0\.0\.1):(3000|2999|5173)$/.test(location.host);
 const BASE_URL = IS_LOCAL_HOST ? "http://localhost:3001/api/v1" : ENV_BASE_URL;
 
 async function request(path, options = {}) {
   const { headers: customHeaders, ...requestOptions } = options;
   const headers = new Headers(customHeaders);
+  if (BASE_URL.includes("ngrok") && !headers.has("ngrok-skip-browser-warning")) {
+    headers.set("ngrok-skip-browser-warning", "true");
+  }
   if (typeof requestOptions.body === "string" && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
