@@ -8,6 +8,7 @@ import Logo from "../components/logo";
 import { useZaloAction } from "../components/use-zalo-action";
 
 const FEEDBACK_PORTAL_URL = "https://dichvucong.gov.vn/nop-phan-anh-kien-nghi?typeInapp=1";
+const HCM_NEWS_URL = "https://vnexpress.net/chu-de/thanh-pho-ho-chi-minh-2091";
 
 /** Danh sách tiện ích nhanh trên trang chủ */
 const QUICK_SERVICES = [
@@ -172,6 +173,25 @@ function HomePage() {
               Xem tất cả
             </button>
           </div>
+
+          <button
+            type="button"
+            className="w-full mb-2.5 bg-gradient-to-r from-blue-600 to-indigo-700 rounded-xl p-3.5 text-left shadow-sm flex items-center gap-3 active:opacity-80 transition-opacity"
+            onClick={() => runZaloAction(() => openServicePortal(HCM_NEWS_URL))}
+          >
+            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center flex-shrink-0">
+              <Icon icon="zi-star" className="text-white" size={20} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <Text className="text-white font-semibold text-sm leading-snug">
+                Tin tức mới nhất TP. Hồ Chí Minh
+              </Text>
+              <Text className="text-blue-100 text-xs mt-0.5 truncate">
+                Xem chuyên mục TP.HCM trên VnExpress
+              </Text>
+            </div>
+            <Icon icon="zi-chevron-right" className="text-white/80 flex-shrink-0" size={18} />
+          </button>
 
           {postsResource.loading || postsResource.error ? (
             <RemoteState {...postsResource} />
