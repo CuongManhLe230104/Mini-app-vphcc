@@ -3,7 +3,10 @@ import RemoteState, { Pagination } from "../components/remote-state";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Box, Header, Icon, Input, Page, Text } from "zmp-ui";
+import { useZaloAction } from "../components/use-zalo-action";
+import { openServicePortal } from "../services/zalo";
 
+const HCM_NEWS_URL = "https://vnexpress.net/chu-de/thanh-pho-ho-chi-minh-2091";
 const POST_TYPES = [{ id: "all", label: "Tất cả" }, { id: "news", label: "Tin tức" }, { id: "guide", label: "Hướng dẫn" }, { id: "video", label: "Video" }];
 
 function formatDate(iso) {
@@ -31,6 +34,7 @@ function PostTypeBadge({ type }) {
 
 function PostsPage() {
   const navigate = useNavigate();
+  const runZaloAction = useZaloAction();
   const [search, setSearch] = useState("");
   const [activeType, setActiveType] = useState("all");
   const [page, setPage] = useState(1);
@@ -75,6 +79,37 @@ function PostsPage() {
             </button>
           ))}
         </div>
+
+        {/* Chuyên mục Tin tức mới nhất TP.HCM (VnExpress) */}
+        {(activeType === "all" || activeType === "news") && (
+          <Box className="mx-4 mb-3">
+            <button
+              type="button"
+              onClick={() => runZaloAction(() => openServicePortal(HCM_NEWS_URL))}
+              className="w-full bg-gradient-to-r from-blue-600 to-indigo-700 rounded-xl p-4 text-left shadow-sm flex items-center gap-3 active:opacity-80 transition-opacity"
+              style={{ minHeight: 64 }}
+            >
+              <div className="w-11 h-11 bg-white/20 rounded-xl flex items-center justify-center flex-shrink-0">
+                <Icon icon="zi-star" className="text-white" size={22} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className="text-[11px] bg-white/20 text-white px-2 py-0.5 rounded-full font-medium">
+                    VnExpress
+                  </span>
+                  <span className="text-[11px] text-blue-100">Cập nhật liên tục</span>
+                </div>
+                <Text className="text-white font-semibold text-base leading-snug">
+                  Tin tức mới nhất TP. Hồ Chí Minh
+                </Text>
+                <Text className="text-blue-100 text-xs mt-0.5 truncate">
+                  vnexpress.net/chu-de/thanh-pho-ho-chi-minh-2091
+                </Text>
+              </div>
+              <Icon icon="zi-chevron-right" className="text-white/80 flex-shrink-0" size={20} />
+            </button>
+          </Box>
+        )}
 
         {/* Danh sách bài viết */}
         {loading || error ? (

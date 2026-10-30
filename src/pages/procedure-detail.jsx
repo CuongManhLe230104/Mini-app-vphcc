@@ -79,21 +79,38 @@ function ProcedureDetailPage() {
           </div>
         </Box>
 
-        {/* Cách nộp */}
+        {/* Cách nộp / Mục đích thực hiện */}
         <Box className="mx-4 bg-white rounded-2xl shadow-sm p-4 mb-3">
           <Text className="text-gray-800 font-semibold text-base mb-2">
-            Cách thức nộp
+            Nhiệm vụ / Mục đích thực hiện
           </Text>
           <Text className="text-gray-700 text-sm leading-relaxed">
             {proc.submission}
           </Text>
         </Box>
 
-        {/* Thông tin nguồn */}
-        <Box className="mx-4 bg-white rounded-xl p-4 mb-3">
-          {(!proc.sourceUrl || !proc.reviewDate) && <Text className="text-amber-800 mb-2">Thông tin chưa có đủ nguồn hoặc ngày rà soát. Vui lòng xác nhận với trung tâm trước khi thực hiện.</Text>}
-          {proc.sourceUrl && <button className="text-blue-600 py-3" onClick={() => runZaloAction(() => openServicePortal(proc.sourceUrl))}>Xem nguồn thông tin</button>}
-          {proc.reviewDate && <Text>Ngày rà soát: {new Date(proc.reviewDate).toLocaleDateString("vi-VN")}</Text>}
+        {/* Nút nộp hồ sơ trực tuyến & Thông tin nguồn */}
+        <Box className="mx-4 bg-white rounded-2xl shadow-sm p-4 mb-3">
+          {proc.sourceUrl ? (
+            <button
+              type="button"
+              className="w-full bg-blue-600 text-white font-semibold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 active:opacity-80"
+              style={{ minHeight: 48 }}
+              onClick={() => runZaloAction(() => openServicePortal(proc.sourceUrl))}
+            >
+              <Icon icon="zi-send-solid" size={18} />
+              <span>Nộp hồ sơ trên Cổng Dịch vụ công Quốc gia</span>
+            </button>
+          ) : (
+            <Text className="text-amber-800 mb-2">
+              Thông tin chưa có đủ nguồn hoặc ngày rà soát. Vui lòng xác nhận với trung tâm trước khi thực hiện.
+            </Text>
+          )}
+          {proc.reviewDate && (
+            <Text className="text-gray-400 text-xs mt-2.5 text-center">
+              Ngày rà soát: {new Date(proc.reviewDate).toLocaleDateString("vi-VN")}
+            </Text>
+          )}
         </Box>
       </div>
     </Page>
