@@ -38,12 +38,33 @@ function PostFormModal({ item, onClose, onSaved }) {
     isHighlighted: editing?.isHighlighted ?? false,
   });
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [imageError, setImageError] = useState("");
+  const handleImage = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setImageError("");
+    if (!/\.(jpe?g|png|webp)$/i.test(file.name) || file.size > 5 * 1024 * 1024) {
+      setImageError("Chọn ảnh JPG, PNG hoặc WebP có dung lượng tối đa 5 MB.");
+      return;
+    }
+    setUploading(true);
+    try {
+      const result = await api.uploadPostImage(file);
+      if (!result?.url) throw new Error("Máy chủ chưa trả về đường dẫn ảnh");
+      setForm(p => ({ ...p, thumbnail: result.url }));
+    } catch (err) {
+      setImageError(err.status === 413 ? "Ảnh vượt quá dung lượng cho phép (5 MB)." : err.message);
+    } finally { setUploading(false); }
+  };
 
   const set = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
   const setBool = k => e => setForm(p => ({ ...p, [k]: e.target.checked }));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (uploading || saving) return;
     setSaving(true);
     try {
       const payload = {
@@ -63,11 +84,11 @@ function PostFormModal({ item, onClose, onSaved }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && !uploading && !saving && onClose()}>
       <div className="modal modal-lg">
         <div className="modal-header">
           <div className="modal-title">{isEdit ? "Xem / Soạn lại bài viết" : "Soạn bài mới"}</div>
-          <button className="modal-close" onClick={onClose}>×</button>
+          <button className="modal-close" disabled={uploading || saving} onClick={onClose}>×</button>
         </div>
         <form onSubmit={handleSubmit} style={{ display: "contents" }}>
           <div className="modal-body">
@@ -97,8 +118,19 @@ function PostFormModal({ item, onClose, onSaved }) {
                 <textarea className="form-textarea" value={form.content} onChange={set("content")} required rows={8} placeholder="Nội dung bài viết..." />
               </div>
               <div className="form-group">
-                <label className="form-label">URL ảnh thumbnail</label>
-                <input className="form-input" value={form.thumbnail} onChange={set("thumbnail")} placeholder="https://..." type="url" />
+                <label className="form-label" htmlFor="post-image">Ảnh đại diện bài viết</label>
+                <input id="post-image" className="form-input" type="file" accept="image/jpeg,image/png,image/webp"
+                  disabled={uploading || saving} onChange={handleImage} />
+                <p style={{ fontSize: 13, color: "#64748b", marginTop: 8 }}>JPG, PNG hoặc WebP · Tối đa 5 MB. Chọn ảnh rồi lưu nháp để gắn vào bài.</p>
+                {uploading && <p role="status">Đang tải ảnh lên…</p>}
+                {imageError && <p role="alert" style={{ color: "#b91c1c" }}>{imageError}</p>}
+                {form.thumbnail && (
+                  <div style={{ marginTop: 12 }}>
+                    <img src={form.thumbnail} alt="Ảnh đại diện đang chọn" style={{ width: "100%", maxHeight: 240, objectFit: "contain", borderRadius: 8 }} />
+                    <button type="button" className="btn btn-ghost" disabled={uploading || saving}
+                      onClick={() => { setForm(p => ({ ...p, thumbnail: "" })); setImageError(""); }}>Gỡ ảnh khỏi bài</button>
+                  </div>
+                )}
               </div>
               {form.type === "VIDEO" && (
                 <div className="form-group">
@@ -115,8 +147,8 @@ function PostFormModal({ item, onClose, onSaved }) {
             </div>
           </div>
           <div className="modal-footer">
-            <button type="button" className="btn btn-ghost" onClick={onClose}>Hủy</button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>
+            <button type="button" className="btn btn-ghost" disabled={uploading || saving} onClick={onClose}>Hủy</button>
+            <button type="submit" className="btn btn-primary" disabled={saving || uploading}>
               {saving ? "Đang lưu..." : "Lưu nháp"}
             </button>
           </div>
@@ -322,7 +354,9 @@ export default function PostsPage() {
             <div style={{ whiteSpace: "pre-wrap" }}>{(modal.item.revision || modal.item).content}</div>
             <p>Loại: {(modal.item.revision || modal.item).type} · Nổi bật: {(modal.item.revision || modal.item).isHighlighted ? "Có" : "Không"}</p>
             <p>Nhãn: {((modal.item.revision || modal.item).tags || []).join(", ")}</p>
-            <p>Ảnh: {(modal.item.revision || modal.item).thumbnail || "Không có"}</p>
+            {(modal.item.revision || modal.item).thumbnail && <img
+              src={(modal.item.revision || modal.item).thumbnail} alt="Ảnh đại diện chờ duyệt"
+              style={{ maxWidth: "100%", maxHeight: 300, objectFit: "contain" }} />}
             <p>Video: {(modal.item.revision || modal.item).videoUrl || "Không có"}</p>
             {modal.item.revision && <details><summary>Bản đang công khai</summary><h3>{modal.item.title}</h3><div style={{ whiteSpace: "pre-wrap" }}>{modal.item.content}</div></details>}
           </div>

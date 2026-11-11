@@ -11,7 +11,8 @@ function getToken() {
 
 async function request(path, options = {}) {
   const token = getToken();
-  const headers = new Headers({ "Content-Type": "application/json" });
+  const headers = new Headers();
+  if (!(options.body instanceof FormData)) headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
   if (options.headers) {
     Object.entries(options.headers).forEach(([k, v]) => headers.set(k, v));
@@ -53,6 +54,11 @@ const put  = (path, body, opts = {}) => request(path, { ...opts, method: "PUT", 
 const del  = (path, opts = {}) => request(path, { ...opts, method: "DELETE" });
 
 export const api = {
+  uploadPostImage: (file) => {
+    const body = new FormData();
+    body.append("file", file);
+    return request("/media/images", { method: "POST", body });
+  },
   getAudit: (page = 1) => get(`/audit?page=${page}&limit=20`),
   // Auth
   login: (username, password) => post("/auth/admin/login", { username, password }),

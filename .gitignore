@@ -38,3 +38,6 @@ Thumbs.db
 
 # Production build
 www/
+
+# Uploaded media is runtime data; back it up separately.
+backend/uploads/

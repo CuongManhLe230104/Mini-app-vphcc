@@ -37,6 +37,15 @@ async function request(path, options = {}) {
   return data;
 }
 
+/** Uploaded images use the API origin, including when the Mini App runs inside Zalo. */
+export function resolvePostImageUrl(value) {
+  if (!value || typeof value !== "string") return "";
+  if (/^https:\/\//i.test(value)) return value;
+  if (!/^\/api\/v1\/media\/images\/[a-f0-9-]+\.webp$/.test(value)) return "";
+  const origin = typeof location !== "undefined" ? location.origin : "http://localhost";
+  return new URL(value, new URL(BASE_URL, origin)).href;
+}
+
 export const api = {
   get: (path, options = {}) => request(path, { ...options, method: "GET" }),
   post: (path, body, options = {}) => request(path, { ...options, method: "POST", body: JSON.stringify(body) }),

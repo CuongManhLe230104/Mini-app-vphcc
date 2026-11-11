@@ -1,4 +1,5 @@
 import { IsUrl, ValidateIf } from 'class-validator';
+import { IsPostImageUrl } from '../../media/image-url.validator';
 import { Transform } from 'class-transformer';
 import { IsString, IsNotEmpty, IsOptional, IsEnum, IsBoolean, IsArray } from 'class-validator';
 import { PostType } from '@prisma/client';
@@ -22,7 +23,7 @@ export class CreatePostDto {
   content: string;
 
   @ValidateIf((_, v) => v !== undefined && v !== null && v !== '')
-  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @IsPostImageUrl()
   thumbnail?: string;
 
   @ValidateIf((_, v) => v !== undefined && v !== null && v !== '')

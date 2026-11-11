@@ -1,3 +1,4 @@
+import PostImage from "../components/post-image";
 import { useApiResource } from "../components/use-api-resource";
 import RemoteState, { Pagination } from "../components/remote-state";
 import { useParams } from "react-router-dom";
@@ -55,6 +56,8 @@ function PostDetailPage() {
             <Icon icon="zi-clock-1" className="text-gray-400" size={14} />
             <Text className="text-gray-400 text-sm">{formatDate(post.publishedAt)}</Text>
           </div>
+
+          <PostImage src={post.thumbnail} alt={post.title} className="w-full h-auto rounded-xl mb-4" />
 
           {/* Tóm tắt */}
           <Text className="text-gray-600 text-base leading-relaxed italic mb-4">
