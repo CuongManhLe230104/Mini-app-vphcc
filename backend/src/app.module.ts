@@ -9,6 +9,7 @@ import { NoticesModule } from './notices/notices.module';
 import { FaqsModule } from './faqs/faqs.module';
 import { AuditModule } from './audit/audit.module';
 import { QueueModule } from './queue/queue.module';
+import { MediaModule } from './media/media.module';
 
 @Controller()
 class AppController {
@@ -42,6 +43,7 @@ class AppController {
     FaqsModule,
     AuditModule,
     QueueModule,
+    MediaModule,
   ],
   controllers: [AppController],
 })

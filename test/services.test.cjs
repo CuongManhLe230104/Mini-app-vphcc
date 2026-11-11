@@ -81,3 +81,20 @@ test('every rendered ZaUI icon exists in the installed icon set', () => {
     for (const [, icon] of source.matchAll(/["'](zi-[\w-]+)["']/g)) assert.ok(icons.has(icon), `${name}: unknown icon ${icon}`);
   }
 });
+
+test('uploaded images resolve against the backend origin on phone and localhost', async () => {
+  const apiSource = fs.readFileSync(path.join(project, 'src/services/api/index.js'), 'utf8');
+  const imagePath = '/api/v1/media/images/12345678-1234-1234-1234-123456789abc.webp';
+  for (const [location, apiBase, expected] of [
+    [{ host: 'mini.zalo.me', origin: 'https://mini.zalo.me' }, 'https://api.example.com/api/v1', 'https://api.example.com'],
+    [{ host: 'localhost:3000', origin: 'http://localhost:3000' }, '', 'http://localhost:3001'],
+  ]) {
+    const context = vm.createContext({ URL, location });
+    const mod = new vm.SourceTextModule(apiSource, { context, initializeImportMeta(meta) { meta.env = { VITE_API_BASE_URL: apiBase }; } });
+    await mod.link(() => { throw new Error('Unexpected import'); });
+    await mod.evaluate();
+    assert.equal(mod.namespace.resolvePostImageUrl(imagePath), expected + imagePath);
+    assert.equal(mod.namespace.resolvePostImageUrl('https://example.com/old.jpg'), 'https://example.com/old.jpg');
+    assert.equal(mod.namespace.resolvePostImageUrl('javascript:alert(1)'), '');
+  }
+});

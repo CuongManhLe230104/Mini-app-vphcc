@@ -1,3 +1,4 @@
+import PostImage from "../components/post-image";
 import { useApiResource } from "../components/use-api-resource";
 import RemoteState, { Pagination } from "../components/remote-state";
 import { useNavigate } from "react-router-dom";
@@ -208,6 +209,7 @@ function HomePage() {
                   onClick={() => navigate(`/posts/${post.id}`)}
                 >
                   <div className="flex items-start gap-3">
+                    <PostImage src={post.thumbnail} alt={post.title} className="w-20 h-20 rounded-lg object-cover flex-shrink-0" />
                     <div className="flex-1 min-w-0">
                       <div className="mb-1.5">
                         <PostTypeBadge type={post.type} />

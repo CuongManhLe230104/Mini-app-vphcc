@@ -1,3 +1,4 @@
+import PostImage from "../components/post-image";
 import { useApiResource } from "../components/use-api-resource";
 import RemoteState, { Pagination } from "../components/remote-state";
 import { useState } from "react";
@@ -129,6 +130,7 @@ function PostsPage() {
                 className="w-full bg-white rounded-xl p-4 text-left shadow-sm active:opacity-70 transition-opacity"
                 onClick={() => navigate(`/posts/${post.id}`)}
               >
+                <PostImage src={post.thumbnail} alt={post.title} className="w-full h-40 rounded-lg object-cover mb-3" />
                 <div className="mb-1.5">
                   <PostTypeBadge type={post.type} />
                 </div>
