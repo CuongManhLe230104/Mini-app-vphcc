@@ -58,16 +58,18 @@ async function main() {
   // ── Thông tin Trung tâm ──────────────────────
   await prisma.center.upsert({
     where: { id: 'center-main' },
-    update: {},
+    update: {
+      caseTrackingUrl: 'https://dichvucong.gov.vn/tra-cuu-ho-so',
+    },
     create: {
       id: 'center-main',
       name: 'TT PVHCC xã Nghĩa Thành',
       fullName: 'Trung tâm Phục vụ hành chính công xã Nghĩa Thành',
-      address: 'Xã Nghĩa Thành, huyện Châu Đức, tỉnh Bà Rịa - Vũng Tàu',
+      address: 'Tổ 6, ấp Sông Cầu, Xã Nghĩa Thành, Thành phố Hồ Chí Minh',
       hotline: '0274.XXX.XXXX', // [DỮ LIỆU MẪU] — cần xác nhận
       oaId: '',
       servicePortalUrl: 'https://dichvucong.gov.vn',
-      caseTrackingUrl: 'https://dichvucong.gov.vn/tra-cuu',
+      caseTrackingUrl: 'https://dichvucong.gov.vn/tra-cuu-ho-so',
       workingHours: [
         { day: 'Thứ Hai – Thứ Sáu', hours: '07:30 – 11:30 và 13:30 – 17:00' },
         { day: 'Thứ Bảy', hours: '07:30 – 11:30' },

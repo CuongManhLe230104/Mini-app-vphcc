@@ -6,6 +6,7 @@ import { useZaloAction } from "../components/use-zalo-action";
 import { callHotline, openServicePortal, openZaloChat } from "../services/zalo";
 
 const FEEDBACK_PORTAL_URL = "https://dichvucong.gov.vn/nop-phan-anh-kien-nghi?typeInapp=1";
+const FEEDBACK_SEARCH_URL = "https://vpcp.dichvucong.gov.vn/p/phananhkiennghi/pakn-search.html";
 
 function SectionTitle({ children }) {
   return (
@@ -94,6 +95,13 @@ function AccountPage() {
             label="Phản ánh kiến nghị"
             sublabel="Gửi qua Cổng Dịch vụ công Quốc gia (dichvucong.gov.vn)"
             onClick={() => runZaloAction(() => openServicePortal(FEEDBACK_PORTAL_URL))}
+          />
+          <ActionRow
+            icon="zi-search"
+            iconBg="bg-amber-100"
+            label="Tra cứu kết quả phản ánh kiến nghị"
+            sublabel="Xem kết quả trả lời trên Cổng Dịch vụ công Quốc gia"
+            onClick={() => runZaloAction(() => openServicePortal(FEEDBACK_SEARCH_URL))}
           />
           <div className="pb-2" />
         </Box>
