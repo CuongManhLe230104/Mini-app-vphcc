@@ -9,6 +9,7 @@ import Logo from "../components/logo";
 import { useZaloAction } from "../components/use-zalo-action";
 
 const FEEDBACK_PORTAL_URL = "https://dichvucong.gov.vn/nop-phan-anh-kien-nghi?typeInapp=1";
+const FEEDBACK_SEARCH_URL = "https://vpcp.dichvucong.gov.vn/p/phananhkiennghi/pakn-search.html";
 const HCM_NEWS_URL = "https://vnexpress.net/chu-de/thanh-pho-ho-chi-minh-2091";
 
 /** Danh sách tiện ích nhanh trên trang chủ */
@@ -284,6 +285,24 @@ function HomePage() {
                 </Text>
                 <Text className="text-gray-400 text-xs">
                   Qua cổng dịch vụ công quốc gia (dichvucong.gov.vn)
+                </Text>
+              </div>
+              <Icon icon="zi-chevron-right" className="text-gray-300" size={18} />
+            </button>
+
+            <button
+              className="w-full bg-white border border-blue-200 rounded-xl py-3.5 px-4 flex items-center gap-3 active:opacity-70 transition-opacity"
+              onClick={() => runZaloAction(() => openServicePortal(FEEDBACK_SEARCH_URL))}
+            >
+              <div className="w-10 h-10 bg-amber-50 rounded-full flex items-center justify-center flex-shrink-0">
+                <Icon icon="zi-search" className="text-amber-600" size={20} />
+              </div>
+              <div className="flex-1 text-left">
+                <Text className="text-gray-800 font-medium text-sm">
+                  Tra cứu kết quả phản ánh kiến nghị
+                </Text>
+                <Text className="text-gray-400 text-xs">
+                  Xem kết quả trả lời trên Cổng DVC Quốc gia
                 </Text>
               </div>
               <Icon icon="zi-chevron-right" className="text-gray-300" size={18} />

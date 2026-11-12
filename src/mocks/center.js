@@ -15,7 +15,7 @@ export const CENTER_INFO = {
   oaId: "",
   // TODO: xác nhận các URL dịch vụ công chính thức
   servicePortalUrl: "https://dichvucong.gov.vn",
-  caseTrackingUrl: "https://dichvucong.gov.vn/tra-cuu",
+  caseTrackingUrl: "https://dichvucong.gov.vn/p/home/dvc-tra-cuu-ho-so.html",
   workingHours: [
     { day: "Thứ Hai – Thứ Sáu", hours: "07:30 – 11:30 và 13:30 – 17:00" },
     { day: "Thứ Bảy", hours: "07:30 – 11:30" },
