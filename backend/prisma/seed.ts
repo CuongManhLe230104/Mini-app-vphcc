@@ -1,5 +1,6 @@
-import { PrismaClient, AdminRole, PostType, PostStatus } from '@prisma/client';
+import { PrismaClient, AdminRole, PostType, PostStatus, NoticeType, NoticePublicationStatus, NoticeLegalStatus, SourceQualityStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { NOTICE_INVENTORY_SOURCES } from '../src/notices/notices-inventory.data';
 
 const prisma = new PrismaClient();
 
@@ -59,6 +60,7 @@ async function main() {
   await prisma.center.upsert({
     where: { id: 'center-main' },
     update: {
+      hotline: '02543979999 - 0937064147',
       caseTrackingUrl: 'https://dichvucong.gov.vn/tra-cuu-ho-so',
     },
     create: {
@@ -66,7 +68,7 @@ async function main() {
       name: 'TT PVHCC xã Nghĩa Thành',
       fullName: 'Trung tâm Phục vụ hành chính công xã Nghĩa Thành',
       address: 'Tổ 6, ấp Sông Cầu, Xã Nghĩa Thành, Thành phố Hồ Chí Minh',
-      hotline: '0274.XXX.XXXX', // [DỮ LIỆU MẪU] — cần xác nhận
+      hotline: '02543979999 - 0937064147',
       oaId: '',
       servicePortalUrl: 'https://dichvucong.gov.vn',
       caseTrackingUrl: 'https://dichvucong.gov.vn/tra-cuu-ho-so',
@@ -218,20 +220,116 @@ async function main() {
   }
   console.log('✅ Tạo tin tức mẫu');
 
-  // ── Niêm yết mẫu ────────────────────────────
-  const notice = await prisma.notice.findFirst({ where: { title: { contains: 'viên chức' } } });
-  if (!notice) {
-    await prisma.notice.create({
-      data: {
-        title: 'Niêm yết kết quả xét tuyển viên chức năm 2026',
-        description: '[DỮ LIỆU MẪU] Thông báo kết quả xét tuyển viên chức năm 2026.',
-        startDate: new Date('2026-10-01'),
-        endDate: new Date('2026-10-22'),
-        isActive: true,
-      },
+  // ── Kho kiểm kê 53 nguồn Niêm yết công khai & 6 mẫu chuẩn (Kế hoạch V2) ──
+  let noticeIdForSource42: string | null = null;
+  for (const item of NOTICE_INVENTORY_SOURCES) {
+    let existingSource = await prisma.sourceDocument.findUnique({
+      where: { sourceIndex: item.sourceIndex },
     });
+    const isPrimaryInGroup = item.sourceIndex !== 43;
+    if (!existingSource) {
+      existingSource = await prisma.sourceDocument.create({
+        data: {
+          sourceIndex: item.sourceIndex,
+          driveFileId: item.driveFileId,
+          originalUrl: item.originalUrl,
+          previewUrl: item.previewUrl,
+          headerCode: item.headerCode,
+          title: item.title,
+          innerDecisionTitle: item.innerDecisionTitle,
+          article1Excerpt: item.article1Excerpt,
+          citedDateText: item.citedDateText,
+          connectorReadable: true,
+          publicAccessChecked: item.isRecommendedTestSample,
+          publicAccessOk: item.isRecommendedTestSample ? true : null,
+          qualityStatus: item.qualityStatus as SourceQualityStatus,
+          qualityNote: item.qualityNote,
+          needsDateVerification: item.needsDateVerification,
+          duplicateOfIndex: item.duplicateOfIndex,
+          isPrimaryInGroup,
+        },
+      });
+    }
+
+    if (item.sourceIndex === 43 && noticeIdForSource42) {
+      if (existingSource.noticeId !== noticeIdForSource42) {
+        await prisma.sourceDocument.update({
+          where: { id: existingSource.id },
+          data: { noticeId: noticeIdForSource42 },
+        });
+      }
+      continue;
+    }
+
+    if (!existingSource.noticeId) {
+      const shouldPublishSample = item.isRecommendedTestSample && item.qualityStatus === 'OK';
+      const legalDate = item.legalDocumentDate
+        ? new Date(`${item.legalDocumentDate}T00:00:00.000Z`)
+        : new Date('2026-08-01T00:00:00.000Z');
+      const createdNotice = await prisma.notice.create({
+        data: {
+          title: item.title,
+          description: `${item.innerDecisionTitle}.\n\n${item.article1Excerpt}`,
+          summary: item.article1Excerpt,
+          startDate: legalDate,
+          endDate: new Date('2030-12-31T23:59:59.000Z'),
+          isActive: shouldPublishSample,
+          publishingUnit: item.publishingUnit,
+          noticeType: item.noticeType as NoticeType,
+          publicationStatus: shouldPublishSample
+            ? NoticePublicationStatus.PUBLISHED
+            : NoticePublicationStatus.DRAFT,
+          legalDocumentNumber: item.legalDocumentNumber,
+          legalDocumentDate: item.legalDocumentDate
+            ? new Date(`${item.legalDocumentDate}T00:00:00.000Z`)
+            : null,
+          citedDateText: item.citedDateText,
+          issuingAuthority: item.issuingAuthority,
+          managingAuthority: item.managingAuthority,
+          legalStatus: NoticeLegalStatus.UNVERIFIED,
+          fieldTags: item.fieldTags,
+          sourcePortalUrl:
+            item.noticeType === 'INTERNAL_PROCESS'
+              ? 'https://vpub.hochiminhcity.gov.vn/portal/KenhTin/Quy-trinh-noi-bo-TTHC.aspx'
+              : 'https://dichvucong.gov.vn',
+          needsVerification: item.qualityStatus !== 'OK' || item.needsDateVerification,
+          verificationNote: item.qualityNote,
+          authorId: editor.id,
+          reviewerId: shouldPublishSample ? reviewer.id : null,
+          publishedAt: shouldPublishSample ? new Date() : null,
+          documents: {
+            create: [
+              {
+                name: `Văn bản PDF niêm yết (${item.headerCode} — Nguồn #${item.sourceIndex})`,
+                fileUrl: item.originalUrl,
+                mimeType: 'application/pdf',
+              },
+            ],
+          },
+        },
+      });
+      await prisma.sourceDocument.update({
+        where: { id: existingSource.id },
+        data: { noticeId: createdNotice.id },
+      });
+      if (item.sourceIndex === 42) {
+        noticeIdForSource42 = createdNotice.id;
+      }
+    } else if (item.sourceIndex === 42) {
+      noticeIdForSource42 = existingSource.noticeId;
+    }
+
+    if (existingSource.noticeId) {
+      await prisma.notice.update({
+        where: { id: existingSource.noticeId },
+        data: {
+          managingAuthority: item.managingAuthority,
+          fieldTags: item.fieldTags,
+        },
+      });
+    }
   }
-  console.log('✅ Tạo niêm yết mẫu');
+  console.log('✅ Đồng bộ kho kiểm kê 53 nguồn Niêm yết công khai (6 mẫu công khai, 47 bản nháp chờ duyệt)');
 
   // ── FAQ mẫu ──────────────────────────────────
   const faqs = [

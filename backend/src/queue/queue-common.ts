@@ -1,7 +1,7 @@
 import { HttpException, HttpStatus } from '@nestjs/common';
 import { Appointment, AppointmentStatus, Prisma, QueueTicket, ServiceCounter, TicketStatus } from '@prisma/client';
-import { canTransitionTicket } from './queue-rules';
-import { formatDateOnly } from './queue-time';
+import { canTransitionTicket, resolveUnifiedTurnStatus } from './queue-rules';
+import { formatDateOnly, minutesToTime, timeToMinutes } from './queue-time';
 
 export type Actor = { type: 'ADMIN' | 'CITIZEN' | 'SYSTEM'; id?: string };
 
@@ -25,7 +25,7 @@ export async function recordEvent(tx: Prisma.TransactionClient, p: {
 
 /**
  * Chuyển trạng thái phiếu: kiểm tra bảng chuyển, khóa lạc quan theo (status, version), ghi sự kiện,
- * đồng bộ lịch hẹn liên quan. Mọi nơi đổi trạng thái phiếu phải đi qua hàm này.
+ * đồng bộ lịch hẹn liên quan (1-1). Mọi nơi đổi trạng thái phiếu phải đi qua hàm này.
  */
 export async function transitionTicket(tx: Prisma.TransactionClient, ticket: QueueTicket, to: TicketStatus, actor: Actor,
   eventType: string, data: Prisma.QueueTicketUncheckedUpdateManyInput = {}, detail?: Record<string, unknown>): Promise<QueueTicket> {
@@ -38,32 +38,60 @@ export async function transitionTicket(tx: Prisma.TransactionClient, ticket: Que
   });
   if (res.count !== 1) throw conflict('CONFLICT', 'Số thứ tự vừa được thay đổi bởi thao tác khác. Vui lòng tải lại.');
 
-  if (ticket.appointmentId && (to === 'COMPLETED' || to === 'NO_SHOW' || to === 'CANCELLED')) {
-    const mapped: AppointmentStatus = to === 'COMPLETED' ? 'COMPLETED' : to === 'NO_SHOW' ? 'NO_SHOW' : 'CANCELLED';
-    await tx.appointment.updateMany({
-      where: { id: ticket.appointmentId, status: 'CHECKED_IN' },
-      data: { status: mapped, slotSeat: mapped === 'CANCELLED' ? null : undefined, version: { increment: 1 } },
-    });
+  if (ticket.appointmentId) {
+    if (to === 'SERVING') {
+      await tx.appointment.updateMany({
+        where: { id: ticket.appointmentId, status: 'CONFIRMED' },
+        data: { status: 'CHECKED_IN', version: { increment: 1 } },
+      });
+    } else if (to === 'COMPLETED' || to === 'NO_SHOW' || to === 'CANCELLED') {
+      const mapped: AppointmentStatus = to === 'COMPLETED' ? 'COMPLETED' : to === 'NO_SHOW' ? 'NO_SHOW' : 'CANCELLED';
+      await tx.appointment.updateMany({
+        where: { id: ticket.appointmentId, status: { in: ['CONFIRMED', 'CHECKED_IN'] } },
+        data: { status: mapped, slotSeat: mapped === 'CANCELLED' ? null : undefined, version: { increment: 1 } },
+      });
+    }
   }
   await recordEvent(tx, { counterId: ticket.counterId, ticketId: ticket.id, appointmentId: ticket.appointmentId ?? undefined, type: eventType, actor, detail });
   return tx.queueTicket.findUniqueOrThrow({ where: { id: ticket.id } });
 }
 
-type CounterLite = Pick<ServiceCounter, 'id' | 'code' | 'name'>;
+type CounterLite = Pick<ServiceCounter, 'id' | 'code' | 'name'> & { slotMinutes?: number | null };
+
+export function formatSlotRange(slotStart: string, slotMinutes?: number | null): string {
+  const duration = slotMinutes && slotMinutes > 0 ? slotMinutes : 30;
+  const startMin = timeToMinutes(slotStart);
+  const endMin = Math.min(24 * 60 - 1, startMin + duration);
+  return `${slotStart} – ${minutesToTime(endMin)}`;
+}
 
 export function ticketView(t: QueueTicket, counter: CounterLite, extra: Record<string, unknown> = {}) {
+  const unified = resolveUnifiedTurnStatus({ ticketStatus: t.status });
   return {
     id: t.id, lookupCode: t.lookupCode, displayNumber: t.displayNumber, sequence: t.sequence,
-    status: t.status, source: t.source, serviceDate: formatDateOnly(t.serviceDate),
+    status: t.status, unifiedStatus: unified.status, unifiedStatusLabel: unified.label,
+    source: t.source, serviceDate: formatDateOnly(t.serviceDate),
     counter: { id: counter.id, code: counter.code, name: counter.name },
     createdAt: t.createdAt, calledAt: t.calledAt, ...extra,
   };
 }
 
 export function appointmentView(a: Appointment, counter: CounterLite, extra: Record<string, unknown> = {}) {
+  const ticketObj = (extra.ticket as { displayNumber?: string; sequence?: number; status?: TicketStatus; lookupCode?: string } | null | undefined) ?? null;
+  const unified = resolveUnifiedTurnStatus({
+    appointmentStatus: a.status,
+    ticketStatus: ticketObj?.status ?? null,
+    isPastSlot: Boolean(extra.isPastSlot),
+  });
   return {
-    id: a.id, lookupCode: a.lookupCode, status: a.status, serviceDate: formatDateOnly(a.serviceDate),
-    slot: a.slotStart, counter: { id: counter.id, code: counter.code, name: counter.name },
+    id: a.id, lookupCode: a.lookupCode, status: a.status,
+    unifiedStatus: unified.status, unifiedStatusLabel: unified.label,
+    displayNumber: (extra.displayNumber as string | null | undefined) ?? ticketObj?.displayNumber ?? null,
+    sequence: (extra.sequence as number | null | undefined) ?? ticketObj?.sequence ?? null,
+    serviceDate: formatDateOnly(a.serviceDate),
+    slot: a.slotStart,
+    slotRange: formatSlotRange(a.slotStart, counter.slotMinutes),
+    counter: { id: counter.id, code: counter.code, name: counter.name },
     contactName: a.contactName, contactPhone: a.contactPhone, createdAt: a.createdAt, ...extra,
   };
 }

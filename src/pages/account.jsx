@@ -7,6 +7,8 @@ import { callHotline, openServicePortal, openZaloChat } from "../services/zalo";
 
 const FEEDBACK_PORTAL_URL = "https://dichvucong.gov.vn/nop-phan-anh-kien-nghi?typeInapp=1";
 const FEEDBACK_SEARCH_URL = "https://vpcp.dichvucong.gov.vn/p/phananhkiennghi/pakn-search.html";
+const LANDLINE_HOTLINE = "02543979999";
+const STAFF_HOTLINE = "0937064147";
 
 function SectionTitle({ children }) {
   return (
@@ -41,8 +43,8 @@ function AccountPage() {
   const centerInfo = resource.data;
   if (!centerInfo) return <Page className="bg-gray-50 page-with-header"><Header title="Của tôi" showBackIcon={false} /><RemoteState {...resource} empty /></Page>;
 
-  function handleHotline() {
-    runZaloAction(() => callHotline(centerInfo.hotline));
+  function handleHotline(number) {
+    runZaloAction(() => callHotline(number));
   }
 
   function handleChat() {
@@ -69,18 +71,24 @@ function AccountPage() {
           </div>
         </Box>
 
-        {/x/i.test(centerInfo.hotline || "") && <div className="m-4 p-3 bg-amber-50 text-amber-800">[DỮ LIỆU MẪU] Thông tin trung tâm đang có số liên hệ mẫu; cần đơn vị xác nhận.</div>}
-        {/* Liên hệ */}
+        {/* Hotline & Hỗ trợ */}
         <Box className="mx-4 bg-white rounded-2xl shadow-sm px-4 mb-4">
           <div className="pt-4">
-            <SectionTitle>Liên hệ</SectionTitle>
+            <SectionTitle>Hotline & Hỗ trợ</SectionTitle>
           </div>
           <ActionRow
             icon="zi-call"
+            iconBg="bg-red-100"
+            label="Điện thoại bàn Trung tâm"
+            sublabel="0254 3979 999 — Bấm để gọi trực tiếp"
+            onClick={() => handleHotline(LANDLINE_HOTLINE)}
+          />
+          <ActionRow
+            icon="zi-user"
             iconBg="bg-green-100"
-            label="Gọi Hotline"
-            sublabel={centerInfo.hotline}
-            onClick={handleHotline}
+            label="Số điện thoại cán bộ Trung tâm"
+            sublabel="0937 064 147 — Bấm để gọi trực tiếp"
+            onClick={() => handleHotline(STAFF_HOTLINE)}
           />
           <ActionRow
             icon="zi-chat"

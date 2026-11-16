@@ -60,7 +60,43 @@ export class ProceduresService {
   async findOne(id: string, admin = false) {
     const proc = await this.prisma.procedure.findFirst({
       where: { id, ...(admin ? {} : { isValid: true }) },
-      include: { field: true },
+      include: {
+        field: true,
+        ...(this.prisma.procedureNoticeLink
+          ? {
+              noticeLinks: {
+                where: admin
+                  ? {}
+                  : {
+                      notice: {
+                        publicationStatus: 'PUBLISHED',
+                      },
+                    },
+                include: {
+                  notice: {
+                    select: {
+                      id: true,
+                      title: true,
+                      legalDocumentNumber: true,
+                      legalDocumentDate: true,
+                      citedDateText: true,
+                      noticeType: true,
+                      managingAuthority: true,
+                      legalStatus: true,
+                      documents: {
+                        select: {
+                          id: true,
+                          name: true,
+                          fileUrl: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            }
+          : {}),
+      } as any,
     });
     if (!proc) {
       throw new NotFoundException(`Không tìm thấy thủ tục với ID: ${id}`);

@@ -15,6 +15,7 @@ import ProcedureDetailPage from "../pages/procedure-detail";
 import PostsPage from "../pages/posts";
 import PostDetailPage from "../pages/post-detail";
 import NoticesPage from "../pages/notices";
+import NoticeDetailPage from "../pages/notice-detail";
 import AccountPage from "../pages/account";
 import QueuePage from "../pages/queue";
 
@@ -31,6 +32,7 @@ const Layout = () => {
             <Route path="/posts" element={<PostsPage />} />
             <Route path="/posts/:id" element={<PostDetailPage />} />
             <Route path="/notices" element={<NoticesPage />} />
+            <Route path="/notices/:id" element={<NoticeDetailPage />} />
             <Route path="/faqs" element={<FaqsPage />} />
             <Route path="/account" element={<AccountPage />} />
           </AnimationRoutes>
