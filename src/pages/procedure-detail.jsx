@@ -112,6 +112,76 @@ function ProcedureDetailPage() {
             </Text>
           )}
         </Box>
+
+        {/* Văn bản niêm yết công khai liên quan (Mốc NY3) */}
+        {Array.isArray(proc.noticeLinks) && proc.noticeLinks.length > 0 && (
+          <Box className="mx-4 bg-white rounded-2xl shadow-sm p-4 mb-3">
+            <Text className="text-gray-800 font-semibold text-base mb-1">
+              Văn bản niêm yết công khai liên quan ({proc.noticeLinks.length})
+            </Text>
+            <Text className="text-gray-500 text-xs mb-3">
+              Quyết định công bố hoặc quy trình giải quyết dẫn chiếu thủ tục này:
+            </Text>
+            <div className="space-y-2.5">
+              {proc.noticeLinks.map((lnk) => {
+                const n = lnk.notice;
+                if (!n) return null;
+                const firstDoc =
+                  Array.isArray(n.documents) && n.documents.length > 0
+                    ? n.documents[0]
+                    : null;
+                return (
+                  <div
+                    key={lnk.id || n.id}
+                    className="p-3 bg-blue-50/50 border border-blue-100 rounded-xl"
+                  >
+                    <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                      {n.legalDocumentNumber && (
+                        <span className="text-xs font-mono font-bold bg-blue-600 text-white px-2 py-0.5 rounded">
+                          {n.legalDocumentNumber}
+                        </span>
+                      )}
+                      {n.citedDateText && (
+                        <span className="text-xs text-gray-500">
+                          ({n.citedDateText})
+                        </span>
+                      )}
+                    </div>
+                    <Text className="text-gray-900 font-semibold text-sm leading-snug mb-2">
+                      {n.title}
+                    </Text>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/notices/${n.id}`)}
+                        className="flex-1 bg-white border border-blue-200 text-blue-700 font-semibold text-xs py-2 px-3 rounded-lg flex items-center justify-center gap-1 active:opacity-75"
+                        style={{ minHeight: 44 }}
+                      >
+                        <Icon icon="zi-info-circle" size={14} />
+                        <span>Chi tiết niêm yết</span>
+                      </button>
+                      {firstDoc?.fileUrl && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            runZaloAction(() =>
+                              openServicePortal(firstDoc.fileUrl)
+                            )
+                          }
+                          className="flex-1 bg-blue-600 text-white font-semibold text-xs py-2 px-3 rounded-lg flex items-center justify-center gap-1 active:opacity-80"
+                          style={{ minHeight: 44 }}
+                        >
+                          <Icon icon="zi-share-external-1" size={14} />
+                          <span>Mở văn bản PDF</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Box>
+        )}
       </div>
     </Page>
   );

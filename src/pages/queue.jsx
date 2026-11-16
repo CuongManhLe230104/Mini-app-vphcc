@@ -8,25 +8,37 @@ import { getZaloAccessToken } from "../services/zalo";
 
 const SAVED_CODES_KEY = "nt_queue_lookup_codes";
 const CITIZEN_JWT_KEY = "nt_citizen_jwt";
+const CITIZEN_SESSION_KEY = "nt_citizen_session_key";
 
-const TICKET_STATUS_TEXT = {
-  WAITING: { label: "Đang chờ tới lượt", cls: "bg-blue-100 text-blue-700" },
-  CALLING: { label: "Mời bạn đến quầy!", cls: "bg-green-100 text-green-800" },
-  SERVING: { label: "Đang phục vụ tại quầy", cls: "bg-emerald-100 text-emerald-800" },
-  COMPLETED: { label: "Đã hoàn tất", cls: "bg-gray-100 text-gray-600" },
+const UNIFIED_STATUS_STYLE = {
+  BOOKED: { label: "Đã đặt lịch", cls: "bg-blue-100 text-blue-800" },
+  CALLING: { label: "Đang gọi — Mời đến quầy!", cls: "bg-green-100 text-green-800" },
+  SERVING: { label: "Đang tiếp nhận", cls: "bg-emerald-100 text-emerald-800" },
+  COMPLETED: { label: "Hoàn tất", cls: "bg-gray-100 text-gray-700" },
   CANCELLED: { label: "Đã hủy", cls: "bg-red-100 text-red-700" },
-  NO_SHOW: { label: "Vắng mặt khi gọi", cls: "bg-amber-100 text-amber-800" },
-  TRANSFERRED: { label: "Đã chuyển quầy", cls: "bg-purple-100 text-purple-700" },
-};
-
-const APPT_STATUS_TEXT = {
-  CONFIRMED: { label: "Đã xác nhận", cls: "bg-blue-100 text-blue-700" },
-  CHECKED_IN: { label: "Đã check-in tại quầy", cls: "bg-green-100 text-green-800" },
-  COMPLETED: { label: "Đã hoàn tất", cls: "bg-gray-100 text-gray-600" },
-  CANCELLED: { label: "Đã hủy", cls: "bg-red-100 text-red-700" },
-  RESCHEDULED: { label: "Đã đổi sang lịch khác", cls: "bg-gray-100 text-gray-600" },
   NO_SHOW: { label: "Vắng mặt", cls: "bg-amber-100 text-amber-800" },
+  UNSERVED_PAST_SLOT: { label: "Chưa được phục vụ (chờ gọi)", cls: "bg-amber-100 text-amber-900" },
 };
+
+const WEEKDAY_NAMES = ["CN", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"];
+
+function getStatusBadge(item) {
+  const key = item?.unifiedStatus || (item?.status === "CONFIRMED" ? "BOOKED" : item?.status);
+  return UNIFIED_STATUS_STYLE[key] || {
+    label: item?.unifiedStatusLabel || item?.status || "Đã đặt lịch",
+    cls: "bg-blue-100 text-blue-800",
+  };
+}
+
+function formatSlotDisplay(slot, slotMinutes = 30) {
+  if (!slot) return "";
+  const [h, m] = String(slot).split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return slot;
+  const total = h * 60 + m + (slotMinutes || 30);
+  const eh = String(Math.floor(total / 60)).padStart(2, "0");
+  const em = String(total % 60).padStart(2, "0");
+  return `${slot} – ${eh}:${em}`;
+}
 
 function makeIdemKey(prefix) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
@@ -52,47 +64,85 @@ function saveLookupCode(code) {
   }
 }
 
-async function ensureCitizenJwt() {
-  const cached = sessionStorage.getItem(CITIZEN_JWT_KEY);
-  if (cached) return cached;
-  const zaloToken = await getZaloAccessToken();
-  if (!zaloToken) {
-    throw new Error("Vui lòng mở ứng dụng trong Zalo để xác thực tài khoản trước khi lấy số / đặt lịch.");
+function getOrCreateCitizenSessionKey() {
+  try {
+    const existing = localStorage.getItem(CITIZEN_SESSION_KEY);
+    if (existing && /^[a-zA-Z0-9_-]{16,64}$/.test(existing)) return existing;
+    const randomPart =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID().replace(/-/g, "")
+        : `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}_${Math.random().toString(36).slice(2, 12)}`;
+    const generated = `cs_${randomPart}`.slice(0, 48);
+    localStorage.setItem(CITIZEN_SESSION_KEY, generated);
+    return generated;
+  } catch {
+    return `cs_mem_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
   }
-  const authRes = await api.post("/auth/zalo", { accessToken: zaloToken });
-  if (!authRes?.accessToken) {
-    throw new Error("Không thể xác thực tài khoản Zalo. Vui lòng thử lại.");
+}
+
+async function ensureCitizenAuthHeader(forceFallback = false) {
+  if (!forceFallback) {
+    try {
+      const cached = sessionStorage.getItem(CITIZEN_JWT_KEY);
+      if (cached) return `Bearer ${cached}`;
+    } catch {
+      // ignore sessionStorage error
+    }
+    try {
+      const zaloToken = await getZaloAccessToken();
+      if (zaloToken && zaloToken !== "DEFAULT ACCESS TOKEN") {
+        const authRes = await api.post("/auth/zalo", { accessToken: zaloToken });
+        if (authRes?.accessToken) {
+          try {
+            sessionStorage.setItem(CITIZEN_JWT_KEY, authRes.accessToken);
+          } catch {
+            // ignore sessionStorage error
+          }
+          return `Bearer ${authRes.accessToken}`;
+        }
+      }
+    } catch {
+      // Khi chạy trên Zalo Studio Simulator, trình duyệt, hoặc người dùng chưa cấp quyền Graph API,
+      // chuyển sang phiên thiết bị ổn định để người dân vẫn đặt lịch bằng Họ tên + SĐT ở Bước 3.
+    }
   }
-  sessionStorage.setItem(CITIZEN_JWT_KEY, authRes.accessToken);
-  return authRes.accessToken;
+  return `CitizenSession ${getOrCreateCitizenSessionKey()}`;
 }
 
 async function authedRequest(method, path, body, headers = {}) {
-  let jwt = await ensureCitizenJwt();
+  let authHeader = await ensureCitizenAuthHeader(false);
   try {
     return method === "GET"
-      ? await api.get(path, { headers: { ...headers, Authorization: `Bearer ${jwt}` } })
-      : await api.post(path, body, { headers: { ...headers, Authorization: `Bearer ${jwt}` } });
+      ? await api.get(path, { headers: { ...headers, Authorization: authHeader } })
+      : await api.post(path, body, { headers: { ...headers, Authorization: authHeader } });
   } catch (err) {
     if (err?.status === 401) {
-      sessionStorage.removeItem(CITIZEN_JWT_KEY);
-      jwt = await ensureCitizenJwt();
+      try {
+        sessionStorage.removeItem(CITIZEN_JWT_KEY);
+      } catch {
+        // ignore
+      }
+      authHeader = await ensureCitizenAuthHeader(true);
       return method === "GET"
-        ? await api.get(path, { headers: { ...headers, Authorization: `Bearer ${jwt}` } })
-        : await api.post(path, body, { headers: { ...headers, Authorization: `Bearer ${jwt}` } });
+        ? await api.get(path, { headers: { ...headers, Authorization: authHeader } })
+        : await api.post(path, body, { headers: { ...headers, Authorization: authHeader } });
     }
     throw err;
   }
+}
+
+function normalizeTabParam(rawTab) {
+  if (rawTab === "lookup" || rawTab === "mine" || rawTab === "history") return "mine";
+  // Cả ?tab=ticket, ?tab=appointment hoặc mặc định đều dẫn vào cùng 1 luồng Đặt lịch đến Trung tâm (Mục 6.1 & 12.2)
+  return "book";
 }
 
 export default function QueuePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { openSnackbar } = useSnackbar();
 
-  const initialTab = ["ticket", "appointment", "lookup"].includes(searchParams.get("tab"))
-    ? searchParams.get("tab")
-    : "ticket";
-  const [tab, setTab] = useState(initialTab);
+  const [tab, setTab] = useState(() => normalizeTabParam(searchParams.get("tab")));
+  const [step, setStep] = useState(1); // 1: Chọn nhu cầu | 2: Chọn lịch | 3: Xác nhận
 
   const catalogRes = useApiResource("/queue/catalog");
   const counters = catalogRes.data?.counters || [];
@@ -111,12 +161,8 @@ export default function QueuePage() {
   const [selectedFieldId, setSelectedFieldId] = useState("");
   const [selectedProcedureId, setSelectedProcedureId] = useState("");
 
-  // Deep link từ Zalo OA: ?tab=appointment&field=<slug_or_id>
   useEffect(() => {
-    const paramTab = searchParams.get("tab");
-    if (["ticket", "appointment", "lookup"].includes(paramTab)) {
-      setTab(paramTab);
-    }
+    setTab(normalizeTabParam(searchParams.get("tab")));
   }, [searchParams]);
 
   useEffect(() => {
@@ -139,35 +185,12 @@ export default function QueuePage() {
     [allFields, selectedFieldId],
   );
   const selectedCounter = selectedField?.counter || null;
+  const selectedProcedure = useMemo(
+    () => (selectedField?.procedures || []).find(p => p.id === selectedProcedureId) || null,
+    [selectedField, selectedProcedureId],
+  );
 
-  // ───────── Luồng 1: Lấy số thứ tự trong ngày ─────────
-  const ticketIdemRef = useRef(makeIdemKey("tkt"));
-  const [issuingTicket, setIssuingTicket] = useState(false);
-  const [issuedTicket, setIssuedTicket] = useState(null);
-
-  const handleIssueTicket = async () => {
-    if (!selectedFieldId) return;
-    setIssuingTicket(true);
-    try {
-      const res = await authedRequest(
-        "POST",
-        "/queue/tickets",
-        { fieldId: selectedFieldId, procedureId: selectedProcedureId || undefined },
-        { "Idempotency-Key": ticketIdemRef.current },
-      );
-      setIssuedTicket(res);
-      saveLookupCode(res.lookupCode);
-      ticketIdemRef.current = makeIdemKey("tkt");
-      catalogRes.reload();
-      openSnackbar({ text: `Đã cấp số ${res.displayNumber} thành công!`, type: "success" });
-    } catch (err) {
-      openSnackbar({ text: err?.message || "Không thể cấp số lúc này", type: "error" });
-    } finally {
-      setIssuingTicket(false);
-    }
-  };
-
-  // ───────── Luồng 2: Đặt lịch hẹn trước (từ OA / Mini App) ─────────
+  // ───────── Luồng thống nhất: Đặt lịch đến Trung tâm & Nhận số gọi ngay ─────────
   const [availability, setAvailability] = useState(null);
   const [availLoading, setAvailLoading] = useState(false);
   const [availError, setAvailError] = useState("");
@@ -175,10 +198,9 @@ export default function QueuePage() {
   const [selectedSlot, setSelectedSlot] = useState("");
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
-  const [reviewStep, setReviewStep] = useState(false);
   const [bookingBusy, setBookingBusy] = useState(false);
   const [bookedAppt, setBookedAppt] = useState(null);
-  const [rescheduleTarget, setRescheduleTarget] = useState(null); // appointment đang đổi lịch
+  const [rescheduleTarget, setRescheduleTarget] = useState(null);
   const apptIdemRef = useRef(makeIdemKey("apt"));
 
   const loadAvailability = useCallback(async (fid) => {
@@ -200,9 +222,8 @@ export default function QueuePage() {
   }, []);
 
   useEffect(() => {
-    if (tab === "appointment" && selectedFieldId) {
+    if (tab === "book" && selectedFieldId) {
       loadAvailability(selectedFieldId);
-      setReviewStep(false);
     }
   }, [tab, selectedFieldId, loadAvailability]);
 
@@ -210,6 +231,8 @@ export default function QueuePage() {
     () => (availability?.days || []).find(d => d.date === selectedDate) || null,
     [availability, selectedDate],
   );
+
+  const slotMinutes = availability?.slotMinutes || selectedCounter?.bookingConfig?.slotMinutes || 30;
 
   const handleConfirmBooking = async () => {
     if (!selectedFieldId || !selectedDate || !selectedSlot) return;
@@ -222,11 +245,16 @@ export default function QueuePage() {
           { date: selectedDate, slot: selectedSlot },
           { "Idempotency-Key": apptIdemRef.current },
         );
-        setBookedAppt(res);
+        setBookedAppt({
+          ...res,
+          fieldLabel: res.fieldLabel || selectedField?.label,
+          procedureName: res.procedureName || selectedProcedure?.name || null,
+        });
         setRescheduleTarget(null);
         saveLookupCode(res.lookupCode);
+        if (res.ticket?.lookupCode) saveLookupCode(res.ticket.lookupCode);
         apptIdemRef.current = makeIdemKey("apt");
-        openSnackbar({ text: "Đã đổi lịch hẹn thành công!", type: "success" });
+        openSnackbar({ text: "Đã đổi lịch và cấp số gọi mới thành công!", type: "success" });
       } else {
         const res = await authedRequest(
           "POST",
@@ -241,13 +269,22 @@ export default function QueuePage() {
           },
           { "Idempotency-Key": apptIdemRef.current },
         );
-        setBookedAppt(res);
+        setBookedAppt({
+          ...res,
+          fieldLabel: res.fieldLabel || selectedField?.label,
+          procedureName: res.procedureName || selectedProcedure?.name || null,
+        });
         saveLookupCode(res.lookupCode);
+        if (res.ticket?.lookupCode) saveLookupCode(res.ticket.lookupCode);
         apptIdemRef.current = makeIdemKey("apt");
-        openSnackbar({ text: "Đã đặt lịch hẹn thành công!", type: "success" });
+        openSnackbar({
+          text: `Đặt lịch thành công! Số gọi của bạn: ${res.displayNumber || res.ticket?.displayNumber || ""}`,
+          type: "success",
+        });
       }
-      setReviewStep(false);
+      setStep(1);
       loadAvailability(selectedFieldId);
+      catalogRes.reload();
     } catch (err) {
       openSnackbar({ text: err?.message || "Không thể đặt lịch lúc này", type: "error" });
     } finally {
@@ -255,7 +292,8 @@ export default function QueuePage() {
     }
   };
 
-  // ───────── Luồng 3: Tra cứu & Số/Lịch của tôi ─────────
+  // ───────── Màn hình "Lịch hẹn của tôi" (Sắp tới / Lịch sử / Tra cứu mã) ─────────
+  const [mineSection, setMineSection] = useState("upcoming"); // "upcoming" | "history"
   const [lookupCodeInput, setLookupCodeInput] = useState("");
   const [lookupData, setLookupData] = useState(null);
   const [lookupLoading, setLookupLoading] = useState(false);
@@ -289,7 +327,6 @@ export default function QueuePage() {
       const res = await authedRequest("GET", "/queue/mine");
       setMyItems(res);
     } catch {
-      // Nếu mở trên trình duyệt hoặc từ chối quyền Zalo, vẫn dùng tra cứu bằng mã bình thường
       setMyItems(null);
     } finally {
       setMyLoading(false);
@@ -297,51 +334,57 @@ export default function QueuePage() {
   }, []);
 
   useEffect(() => {
-    if (tab === "lookup") {
+    if (tab === "mine") {
       setSavedCodes(loadSavedCodes());
       loadMyItems();
     }
   }, [tab, loadMyItems]);
 
-  const handleCancelMyTicket = async (ticketId) => {
-    try {
-      await authedRequest("POST", `/queue/tickets/${ticketId}/cancel`, { reason: "Người dân chủ động hủy trên Mini App" });
-      openSnackbar({ text: "Đã hủy phiếu số thứ tự", type: "success" });
-      setIssuedTicket(null);
-      loadMyItems();
-      catalogRes.reload();
-    } catch (err) {
-      openSnackbar({ text: err?.message || "Không thể hủy phiếu", type: "error" });
-    }
-  };
-
   const handleCancelMyAppointment = async (appointmentId) => {
     try {
-      await authedRequest("POST", `/queue/appointments/${appointmentId}/cancel`, { reason: "Người dân chủ động hủy trên Mini App" });
-      openSnackbar({ text: "Đã hủy lịch hẹn và giải phóng chỗ", type: "success" });
-      setBookedAppt(null);
+      await authedRequest("POST", `/queue/appointments/${appointmentId}/cancel`, {
+        reason: "Người dân chủ động hủy trước giờ hẹn trên Mini App",
+      });
+      openSnackbar({ text: "Đã hủy lịch hẹn và giải phóng chỗ trống", type: "success" });
+      if (bookedAppt?.id === appointmentId) {
+        setBookedAppt(null);
+      }
       loadMyItems();
+      if (selectedFieldId) loadAvailability(selectedFieldId);
+      catalogRes.reload();
     } catch (err) {
       openSnackbar({ text: err?.message || "Không thể hủy lịch hẹn", type: "error" });
     }
   };
 
   const switchTab = (nextTab) => {
-    setTab(nextTab);
-    setSearchParams({ tab: nextTab }, { replace: true });
+    const normalized = normalizeTabParam(nextTab);
+    setTab(normalized);
+    setSearchParams({ tab: normalized }, { replace: true });
   };
+
+  const upcomingList = useMemo(() => {
+    if (!myItems) return [];
+    if (Array.isArray(myItems.upcomingAppointments)) return myItems.upcomingAppointments;
+    return (myItems.appointments || []).filter(a => a.status === "CONFIRMED" || a.status === "CHECKED_IN");
+  }, [myItems]);
+
+  const historyList = useMemo(() => {
+    if (!myItems) return [];
+    if (Array.isArray(myItems.historyAppointments)) return myItems.historyAppointments;
+    return (myItems.appointments || []).filter(a => a.status !== "CONFIRMED" && a.status !== "CHECKED_IN");
+  }, [myItems]);
 
   return (
     <Page className="bg-gray-50 page-with-header">
-      <Header title="Lấy số & Đặt lịch hẹn" showBackIcon />
+      <Header title="Đặt lịch đến Trung tâm" showBackIcon />
 
       <div className="pb-24 pt-3">
-        {/* Thanh chuyển Tab */}
-        <div className="mx-4 mb-4 grid grid-cols-3 gap-2 bg-white p-1.5 rounded-xl shadow-sm">
+        {/* Thanh chuyển 2 Tab chính: Đặt lịch đến Trung tâm & Lịch hẹn của tôi */}
+        <div className="mx-4 mb-4 grid grid-cols-2 gap-2 bg-white p-1.5 rounded-xl shadow-sm">
           {[
-            { id: "ticket", label: "Lấy số", icon: "zi-clock-1" },
-            { id: "appointment", label: "Đặt lịch", icon: "zi-calendar" },
-            { id: "lookup", label: "Số của tôi", icon: "zi-search" },
+            { id: "book", label: "Đặt lịch đến Trung tâm", icon: "zi-calendar" },
+            { id: "mine", label: "Lịch hẹn của tôi", icon: "zi-list-1" },
           ].map(item => (
             <button
               key={item.id}
@@ -356,290 +399,139 @@ export default function QueuePage() {
           ))}
         </div>
 
-        {/* Trạng thái tải danh mục quầy cho tab Lấy số & Đặt lịch */}
-        {tab !== "lookup" && (catalogRes.loading || catalogRes.error) ? (
+        {/* Trạng thái tải danh mục quầy */}
+        {tab === "book" && (catalogRes.loading || catalogRes.error) ? (
           <RemoteState loading={catalogRes.loading} error={catalogRes.error} reload={catalogRes.reload} />
         ) : null}
 
-        {tab !== "lookup" && !catalogRes.loading && !catalogRes.error && allFields.length === 0 && (
+        {tab === "book" && !catalogRes.loading && !catalogRes.error && allFields.length === 0 && (
           <Box className="mx-4 bg-white rounded-2xl p-5 shadow-sm text-base text-gray-700" role="status">
             <Text className="font-bold text-gray-900 text-base mb-1">
-              Hệ thống lấy số & đặt lịch đang chờ kích hoạt
+              Lịch phục vụ trực tuyến đang được cập nhật
             </Text>
             <Text className="text-base text-gray-600">
-              Trung tâm đang cập nhật cấu hình quầy phục vụ, giờ hoạt động và hạn mức. Bạn có thể chuyển sang mục{" "}
-              <button className="text-blue-600 font-semibold underline" onClick={() => switchTab("lookup")}>
-                Số của tôi
+              Trung tâm đang cập nhật cấu hình quầy phục vụ và khung giờ làm việc. Bạn có thể chuyển sang mục{" "}
+              <button className="text-blue-600 font-semibold underline" onClick={() => switchTab("mine")}>
+                Lịch hẹn của tôi
               </button>{" "}
-              nếu đã có mã tra cứu.
+              để xem hoặc tra cứu lịch hẹn đã đặt.
             </Text>
           </Box>
         )}
 
-        {/* ══════════════════ TAB 1: LẤY SỐ TRONG NGÀY ══════════════════ */}
-        {tab === "ticket" && !catalogRes.loading && !catalogRes.error && allFields.length > 0 && (
-          <div className="space-y-4 px-4">
-            {issuedTicket ? (
-              <Box className="bg-white rounded-2xl p-5 shadow-sm border border-green-200">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-green-100 text-green-800">
-                    Biên nhận số thứ tự
-                  </span>
-                  <span className="text-sm text-gray-500">Ngày {issuedTicket.serviceDate}</span>
-                </div>
-                <div className="text-center py-4 bg-blue-50 rounded-xl mb-4">
-                  <Text className="text-sm text-gray-600">Số thứ tự của bạn</Text>
-                  <div className="text-4xl font-extrabold text-blue-700 my-1">{issuedTicket.displayNumber}</div>
-                  <Text className="text-sm font-medium text-gray-700">
-                    Quầy {issuedTicket.counter.code} — {issuedTicket.counter.name}
-                  </Text>
-                </div>
-
-                <div className="space-y-2 text-base text-gray-700 mb-4">
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Mã tra cứu:</span>
-                    <strong className="font-mono text-gray-900">{issuedTicket.lookupCode}</strong>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Số người chờ phía trước:</span>
-                    <strong>{issuedTicket.aheadCount ?? 0} người</strong>
-                  </div>
-                  <div className="p-3 bg-gray-50 rounded-xl text-sm text-gray-600">
-                    📌 Vui lòng có mặt tại <strong>Quầy {issuedTicket.counter.code}</strong> và theo dõi màn hình gọi số. Bạn có thể dùng mã{" "}
-                    <strong className="font-mono">{issuedTicket.lookupCode}</strong> ở tab &ldquo;Số của tôi&rdquo; để kiểm tra trạng thái bất kỳ lúc nào.
-                  </div>
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    className="flex-1 min-h-[44px] bg-blue-600 text-white rounded-xl font-semibold text-base"
-                    onClick={() => {
-                      switchTab("lookup");
-                      runCodeLookup(issuedTicket.lookupCode);
-                    }}
-                  >
-                    Theo dõi hàng chờ
-                  </button>
-                  {issuedTicket.status === "WAITING" && (
-                    <button
-                      className="min-h-[44px] px-4 bg-red-50 text-red-600 rounded-xl font-semibold text-base"
-                      onClick={() => handleCancelMyTicket(issuedTicket.id)}
-                    >
-                      Hủy số
-                    </button>
-                  )}
-                </div>
-              </Box>
-            ) : (
-              <>
-                <Box className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
-                  <Text className="font-bold text-gray-800 text-base">1. Chọn lĩnh vực & thủ tục</Text>
-                  <div>
-                    <label className="block text-sm text-gray-600 mb-1">Lĩnh vực giải quyết</label>
-                    <select
-                      className="w-full min-h-[44px] px-3 py-2 border border-gray-200 rounded-xl text-base bg-white"
-                      value={selectedFieldId}
-                      onChange={e => {
-                        setSelectedFieldId(e.target.value);
-                        setSelectedProcedureId("");
-                        ticketIdemRef.current = makeIdemKey("tkt");
-                      }}
-                    >
-                      {allFields.map(f => (
-                        <option key={f.id} value={f.id}>
-                          {f.label} (Quầy {f.counter.code})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {selectedField?.procedures?.length > 0 && (
-                    <div>
-                      <label className="block text-sm text-gray-600 mb-1">Thủ tục cụ thể (không bắt buộc)</label>
-                      <select
-                        className="w-full min-h-[44px] px-3 py-2 border border-gray-200 rounded-xl text-base bg-white"
-                        value={selectedProcedureId}
-                        onChange={e => setSelectedProcedureId(e.target.value)}
-                      >
-                        <option value="">-- Chọn chung theo lĩnh vực --</option>
-                        {selectedField.procedures.map(p => (
-                          <option key={p.id} value={p.id}>{p.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                </Box>
-
-                {selectedCounter && (
-                  <Box className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
-                    <Text className="font-bold text-gray-800 text-base">2. Trạng thái quầy phục vụ</Text>
-                    <div className="p-3 bg-blue-50 rounded-xl">
-                      <div className="font-bold text-blue-900 text-base">
-                        Quầy {selectedCounter.code} — {selectedCounter.name}
-                      </div>
-                      {selectedCounter.description && (
-                        <div className="text-sm text-blue-700 mt-0.5">{selectedCounter.description}</div>
-                      )}
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3 text-base">
-                      <div className="p-3 bg-gray-50 rounded-xl">
-                        <div className="text-xs text-gray-500">Số đang gọi</div>
-                        <div className="text-lg font-bold text-green-700 mt-0.5">
-                          {selectedCounter.today.currentlyServing?.length > 0
-                            ? selectedCounter.today.currentlyServing.map(s => s.displayNumber).join(", ")
-                            : "Chưa gọi"}
-                        </div>
-                      </div>
-                      <div className="p-3 bg-gray-50 rounded-xl">
-                        <div className="text-xs text-gray-500">Đang chờ tại quầy</div>
-                        <div className="text-lg font-bold text-blue-700 mt-0.5">
-                          {selectedCounter.today.waitingCount} người
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="text-sm text-gray-600 space-y-1">
-                      <div>
-                        🕒 Giờ nhận số hôm nay:{" "}
-                        <strong>
-                          {selectedCounter.today.windows?.length > 0
-                            ? selectedCounter.today.windows.map(w => `${w.startTime}–${w.endTime}`).join(", ")
-                            : "Nghỉ"}
-                        </strong>
-                      </div>
-                      {selectedCounter.today.remainingOnlineQuota !== null && (
-                        <div>
-                          🎫 Lượt lấy số trực tuyến còn lại hôm nay:{" "}
-                          <strong>{selectedCounter.today.remainingOnlineQuota} lượt</strong>
-                        </div>
-                      )}
-                    </div>
-
-                    {!selectedCounter.readiness.ticket.ready ? (
-                      <div className="p-3 bg-amber-50 text-amber-800 rounded-xl text-sm">
-                        Quầy hiện chưa mở lấy số trực tuyến ({selectedCounter.readiness.ticket.missing.join(", ")}).
-                      </div>
-                    ) : selectedCounter.today.isClosedToday ? (
-                      <div className="p-3 bg-red-50 text-red-700 rounded-xl text-sm">
-                        Quầy nghỉ hôm nay ({selectedCounter.today.closureNote || "Theo lịch làm việc"}). Bạn có thể chuyển sang tab Đặt lịch cho ngày tiếp theo.
-                      </div>
-                    ) : !selectedCounter.today.isOpenNow ? (
-                      <div className="p-3 bg-amber-50 text-amber-800 rounded-xl text-sm">
-                        Hiện đang ngoài giờ nhận số trực tuyến. Vui lòng lấy số trong khung giờ hoạt động hoặc chọn Đặt lịch hẹn trước.
-                      </div>
-                    ) : selectedCounter.today.remainingOnlineQuota === 0 ? (
-                      <div className="p-3 bg-red-50 text-red-700 rounded-xl text-sm">
-                        Đã hết hạn mức lấy số trực tuyến hôm nay tại quầy này.
-                      </div>
-                    ) : null}
-
-                    <button
-                      disabled={
-                        issuingTicket ||
-                        !selectedCounter.readiness.ticket.ready ||
-                        selectedCounter.today.isClosedToday ||
-                        !selectedCounter.today.isOpenNow ||
-                        selectedCounter.today.remainingOnlineQuota === 0
-                      }
-                      onClick={handleIssueTicket}
-                      className="w-full min-h-[48px] bg-blue-600 disabled:bg-gray-300 text-white rounded-xl font-bold text-base shadow-sm"
-                    >
-                      {issuingTicket ? "Đang cấp số..." : "Xác nhận lấy số thứ tự"}
-                    </button>
-                  </Box>
-                )}
-              </>
-            )}
-          </div>
-        )}
-
-        {/* ══════════════════ TAB 2: ĐẶT LỊCH HẸN TRƯỚC ══════════════════ */}
-        {tab === "appointment" && !catalogRes.loading && !catalogRes.error && allFields.length > 0 && (
+        {/* ══════════════════ TAB 1: ĐẶT LỊCH ĐẾN TRUNG TÂM (LUỒNG 3 BƯỚC + CẤP SỐ NGAY) ══════════════════ */}
+        {tab === "book" && !catalogRes.loading && !catalogRes.error && allFields.length > 0 && (
           <div className="space-y-4 px-4">
             {bookedAppt ? (
-              <Box className="bg-white rounded-2xl p-5 shadow-sm border border-blue-200 space-y-3">
+              /* ───────── PHIẾU XÁC NHẬN ĐẶT LỊCH & SỐ GỌI ĐÃ CẤP (MỤC 6.3) ───────── */
+              <Box className="bg-white rounded-2xl p-5 shadow-sm border border-green-200 space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-100 text-blue-800">
-                    Xác nhận đặt lịch hẹn
+                  <span className="inline-flex items-center gap-1 text-xs font-bold px-3 py-1 rounded-full bg-green-100 text-green-800">
+                    <Icon icon="zi-check-circle" size={14} />
+                    Đặt lịch thành công
                   </span>
-                  <span className="text-sm text-gray-500">{bookedAppt.serviceDate}</span>
+                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${getStatusBadge(bookedAppt).cls}`}>
+                    {getStatusBadge(bookedAppt).label}
+                  </span>
                 </div>
 
-                <div className="text-center py-4 bg-blue-50 rounded-xl">
-                  <Text className="text-sm text-gray-600">Mã tra cứu lịch hẹn</Text>
-                  <div className="text-3xl font-extrabold font-mono text-blue-700 my-1">
-                    {bookedAppt.lookupCode}
+                {/* Số gọi được cấp ngay & Mã lịch hẹn */}
+                <div className="text-center py-4 px-3 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl border border-blue-100">
+                  <Text className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+                    Số gọi tại quầy đã được cấp
+                  </Text>
+                  <div className="text-4xl font-extrabold text-blue-700 my-1">
+                    {bookedAppt.displayNumber || bookedAppt.ticket?.displayNumber || "Đang cấp"}
                   </div>
-                  <Text className="text-base font-semibold text-gray-800">
-                    Khung giờ {bookedAppt.slot} • Ngày {bookedAppt.serviceDate}
+                  <Text className="text-base font-bold text-gray-900">
+                    Quầy {bookedAppt.counter?.code} — {bookedAppt.counter?.name}
                   </Text>
-                  <Text className="text-sm text-gray-600 mt-0.5">
-                    Quầy {bookedAppt.counter.code} — {bookedAppt.counter.name}
-                  </Text>
-                </div>
-
-                <div className="p-3 bg-gray-50 rounded-xl text-sm text-gray-700 space-y-1">
-                  <div>👤 Người đặt: <strong>{bookedAppt.contactName}</strong></div>
-                  <div>
-                    📌 <strong>Hướng dẫn khi đến Trung tâm:</strong> Vui lòng mang đầy đủ thành phần hồ sơ bản chính/bản sao theo quy định và đọc mã{" "}
-                    <strong className="font-mono">{bookedAppt.lookupCode}</strong> cho cán bộ tại{" "}
-                    <strong>Quầy {bookedAppt.counter.code}</strong> để check-in vào hàng phục vụ.
+                  <div className="mt-2 inline-block bg-white px-3 py-1 rounded-lg border border-blue-200 text-xs text-gray-600">
+                    Mã hẹn: <strong className="font-mono text-sm text-gray-900">{bookedAppt.lookupCode}</strong>
                   </div>
                 </div>
 
-                <div className="flex gap-2">
-                  <button
-                    className="flex-1 min-h-[44px] bg-blue-600 text-white rounded-xl font-semibold text-base"
-                    onClick={() => {
-                      setRescheduleTarget(bookedAppt);
-                      setBookedAppt(null);
-                    }}
-                  >
-                    Đổi lịch
-                  </button>
-                  <button
-                    className="min-h-[44px] px-4 bg-red-50 text-red-600 rounded-xl font-semibold text-base"
-                    onClick={() => handleCancelMyAppointment(bookedAppt.id)}
-                  >
-                    Hủy lịch
-                  </button>
-                </div>
-              </Box>
-            ) : reviewStep ? (
-              <Box className="bg-white rounded-2xl p-5 shadow-sm space-y-4">
-                <Text className="font-bold text-gray-900 text-lg">
-                  {rescheduleTarget ? "Xác nhận đổi lịch hẹn" : "Kiểm tra thông tin đặt lịch"}
-                </Text>
+                {/* Thông tin chi tiết của phiếu xác nhận */}
                 <div className="space-y-2 text-base text-gray-700 bg-gray-50 p-4 rounded-xl">
-                  <div>Lĩnh vực: <strong>{selectedField?.label}</strong></div>
-                  <div>Quầy phục vụ: <strong>Quầy {selectedCounter?.code} — {selectedCounter?.name}</strong></div>
-                  <div>Ngày hẹn: <strong>{selectedDate}</strong></div>
-                  <div>Khung giờ: <strong>{selectedSlot}</strong></div>
-                  {!rescheduleTarget && (
-                    <>
-                      <div>Họ và tên: <strong>{contactName}</strong></div>
-                      {contactPhone && <div>Số điện thoại: <strong>{contactPhone}</strong></div>}
-                    </>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-gray-500">Ngày & Khung giờ:</span>
+                    <strong className="text-right text-gray-900">
+                      {bookedAppt.serviceDate} • {bookedAppt.slotRange || formatSlotDisplay(bookedAppt.slot, slotMinutes)}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-gray-500">Quầy phục vụ:</span>
+                    <strong className="text-right text-gray-900">
+                      Quầy {bookedAppt.counter?.code} ({bookedAppt.counter?.name})
+                    </strong>
+                  </div>
+                  {bookedAppt.fieldLabel && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gray-500">Lĩnh vực:</span>
+                      <strong className="text-right text-gray-900">{bookedAppt.fieldLabel}</strong>
+                    </div>
+                  )}
+                  {bookedAppt.procedureName && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gray-500">Thủ tục:</span>
+                      <strong className="text-right text-gray-900">{bookedAppt.procedureName}</strong>
+                    </div>
+                  )}
+                  {bookedAppt.contactName && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gray-500">Người đặt lịch:</span>
+                      <strong className="text-right text-gray-900">{bookedAppt.contactName}</strong>
+                    </div>
                   )}
                 </div>
-                <Text className="text-xs text-gray-500">
-                  Thông tin họ tên và số điện thoại chỉ dùng để cán bộ đối chiếu khi bạn đến check-in tại quầy.
-                </Text>
-                <div className="flex gap-2">
+
+                {/* Hướng dẫn chuẩn Mục 6.3: Không bấm xác nhận có mặt, không lấy số lần hai */}
+                <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-900 space-y-1">
+                  <div className="font-bold">📌 Hướng dẫn khi đến Trung tâm:</div>
+                  <div>
+                    <strong>Đến đúng khung giờ, trình phiếu tại quầy và chờ gọi số.</strong>
+                  </div>
+                  <div className="text-xs text-blue-800">
+                    Bạn đã có sẵn số gọi <strong>{bookedAppt.displayNumber || bookedAppt.ticket?.displayNumber}</strong>, không cần lấy số lại hoặc bấm check-in khi tới Trung tâm.
+                  </div>
+                </div>
+
+                {/* Các nút thao tác trên phiếu xác nhận */}
+                <div className="space-y-2">
                   <button
-                    className="min-h-[44px] px-4 bg-gray-100 text-gray-700 rounded-xl font-semibold text-base"
-                    onClick={() => setReviewStep(false)}
-                    disabled={bookingBusy}
+                    className="w-full min-h-[44px] bg-blue-600 text-white rounded-xl font-semibold text-base"
+                    onClick={() => switchTab("mine")}
                   >
-                    Quay lại sửa
+                    Xem trong &ldquo;Lịch hẹn của tôi&rdquo;
                   </button>
+                  <div className="flex gap-2">
+                    <button
+                      className="flex-1 min-h-[44px] bg-gray-100 text-gray-700 rounded-xl font-semibold text-sm"
+                      onClick={() => {
+                        setRescheduleTarget(bookedAppt);
+                        setBookedAppt(null);
+                        setStep(2);
+                      }}
+                    >
+                      Đổi khung giờ khác
+                    </button>
+                    {bookedAppt.status === "CONFIRMED" && (
+                      <button
+                        className="min-h-[44px] px-4 bg-red-50 text-red-600 rounded-xl font-semibold text-sm"
+                        onClick={() => handleCancelMyAppointment(bookedAppt.id)}
+                      >
+                        Hủy lịch
+                      </button>
+                    )}
+                  </div>
                   <button
-                    className="flex-1 min-h-[44px] bg-blue-600 text-white rounded-xl font-bold text-base disabled:opacity-50"
-                    onClick={handleConfirmBooking}
-                    disabled={bookingBusy}
+                    className="w-full min-h-[44px] text-blue-600 font-semibold text-sm underline"
+                    onClick={() => {
+                      setBookedAppt(null);
+                      setStep(1);
+                    }}
                   >
-                    {bookingBusy ? "Đang xử lý..." : "Xác nhận đặt lịch"}
+                    + Đặt thêm lịch hẹn mới
                   </button>
                 </div>
               </Box>
@@ -647,105 +539,303 @@ export default function QueuePage() {
               <>
                 {rescheduleTarget && (
                   <Box className="bg-amber-50 border border-amber-200 rounded-2xl p-3 flex items-center justify-between text-sm text-amber-900">
-                    <span>Đang đổi lịch cho mã <strong>{rescheduleTarget.lookupCode}</strong> ({rescheduleTarget.serviceDate} {rescheduleTarget.slot})</span>
-                    <button className="underline font-semibold ml-2" onClick={() => setRescheduleTarget(null)}>Hủy đổi</button>
+                    <span>
+                      Đang đổi lịch cho số <strong>{rescheduleTarget.displayNumber || rescheduleTarget.lookupCode}</strong> (
+                      {rescheduleTarget.serviceDate} • {rescheduleTarget.slot})
+                    </span>
+                    <button
+                      className="underline font-semibold ml-2"
+                      onClick={() => {
+                        setRescheduleTarget(null);
+                        setStep(1);
+                      }}
+                    >
+                      Hủy đổi
+                    </button>
                   </Box>
                 )}
 
-                <Box className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
-                  <Text className="font-bold text-gray-800 text-base">1. Chọn lĩnh vực</Text>
-                  <select
-                    className="w-full min-h-[44px] px-3 py-2 border border-gray-200 rounded-xl text-base bg-white"
-                    value={selectedFieldId}
-                    disabled={Boolean(rescheduleTarget)}
-                    onChange={e => {
-                      setSelectedFieldId(e.target.value);
-                      setSelectedProcedureId("");
-                    }}
-                  >
-                    {allFields.map(f => (
-                      <option key={f.id} value={f.id}>{f.label} (Quầy {f.counter.code})</option>
-                    ))}
-                  </select>
-                </Box>
+                {/* Thanh tiến trình 3 bước */}
+                <div className="bg-white rounded-2xl p-3 shadow-sm grid grid-cols-3 gap-2 text-center">
+                  {[
+                    { id: 1, title: "Bước 1", sub: "Chọn nhu cầu" },
+                    { id: 2, title: "Bước 2", sub: "Chọn lịch" },
+                    { id: 3, title: "Bước 3", sub: "Xác nhận" },
+                  ].map(s => {
+                    const active = step === s.id;
+                    const done = step > s.id;
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        disabled={s.id > step}
+                        onClick={() => s.id < step && setStep(s.id)}
+                        className={`py-2 px-1 rounded-xl border text-xs transition-colors ${
+                          active
+                            ? "bg-blue-600 text-white border-blue-600 font-bold"
+                            : done
+                            ? "bg-blue-50 text-blue-700 border-blue-200 font-semibold"
+                            : "bg-gray-50 text-gray-400 border-gray-100"
+                        }`}
+                      >
+                        <div>{s.title}</div>
+                        <div className="text-[11px] truncate">{s.sub}</div>
+                      </button>
+                    );
+                  })}
+                </div>
 
-                {availLoading || availError ? (
-                  <RemoteState loading={availLoading} error={availError} reload={() => loadAvailability(selectedFieldId)} />
-                ) : availability && (
+                {/* ───────── BƯỚC 1: CHỌN NHU CẦU (MỤC 6.2) ───────── */}
+                {step === 1 && (
                   <Box className="bg-white rounded-2xl p-4 shadow-sm space-y-4">
+                    <Text className="font-bold text-gray-900 text-base">
+                      Bước 1 — Chọn nhu cầu giải quyết thủ tục
+                    </Text>
+
                     <div>
-                      <Text className="font-bold text-gray-800 text-base mb-2">2. Chọn ngày còn chỗ</Text>
-                      <div className="flex gap-2 overflow-x-auto pb-1">
-                        {(availability.days || []).map(d => {
-                          const hasSlot = !d.closed && (d.slots || []).some(s => s.available);
-                          const active = d.date === selectedDate;
-                          return (
-                            <button
-                              key={d.date}
-                              disabled={!hasSlot}
-                              onClick={() => {
-                                setSelectedDate(d.date);
-                                setSelectedSlot("");
-                              }}
-                              className={`min-h-[48px] px-3 py-2 rounded-xl border text-left flex-shrink-0 ${
-                                active
-                                  ? "bg-blue-600 text-white border-blue-600"
-                                  : hasSlot
-                                  ? "bg-white text-gray-800 border-gray-200"
-                                  : "bg-gray-100 text-gray-400 border-gray-100"
-                              }`}
-                            >
-                              <div className="text-xs font-semibold">{d.date.slice(5)}</div>
-                              <div className="text-[11px]">{hasSlot ? "Còn chỗ" : "Hết/Nghỉ"}</div>
-                            </button>
-                          );
-                        })}
-                      </div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Lĩnh vực cần giải quyết *
+                      </label>
+                      <select
+                        className="w-full min-h-[44px] px-3 py-2 border border-gray-200 rounded-xl text-base bg-white"
+                        value={selectedFieldId}
+                        disabled={Boolean(rescheduleTarget)}
+                        onChange={e => {
+                          setSelectedFieldId(e.target.value);
+                          setSelectedProcedureId("");
+                          apptIdemRef.current = makeIdemKey("apt");
+                        }}
+                      >
+                        {allFields.map(f => (
+                          <option key={f.id} value={f.id}>
+                            {f.label} — Quầy {f.counter.code}
+                          </option>
+                        ))}
+                      </select>
                     </div>
 
-                    {currentDayObj && (
+                    {selectedField?.procedures?.length > 0 && (
                       <div>
-                        <Text className="font-bold text-gray-800 text-base mb-2">3. Chọn khung giờ</Text>
-                        {currentDayObj.closed ? (
-                          <Text className="text-sm text-red-600">{currentDayObj.closureNote}</Text>
-                        ) : (
-                          <div className="grid grid-cols-3 gap-2">
-                            {(currentDayObj.slots || []).map(s => (
-                              <button
-                                key={s.slot}
-                                disabled={!s.available}
-                                onClick={() => setSelectedSlot(s.slot)}
-                                className={`min-h-[44px] py-2 px-2 rounded-xl border text-center text-sm font-semibold ${
-                                  selectedSlot === s.slot
-                                    ? "bg-blue-600 text-white border-blue-600"
-                                    : s.available
-                                    ? "bg-white text-gray-800 border-gray-200"
-                                    : "bg-gray-100 text-gray-400 border-gray-100"
-                                }`}
-                              >
-                                <div>{s.slot}</div>
-                                <div className="text-[11px] font-normal">Còn {s.remaining} chỗ</div>
-                              </button>
-                            ))}
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Thủ tục cụ thể (nếu biết — không bắt buộc)
+                        </label>
+                        <select
+                          className="w-full min-h-[44px] px-3 py-2 border border-gray-200 rounded-xl text-base bg-white"
+                          value={selectedProcedureId}
+                          disabled={Boolean(rescheduleTarget)}
+                          onChange={e => setSelectedProcedureId(e.target.value)}
+                        >
+                          <option value="">-- Chọn chung theo lĩnh vực --</option>
+                          {selectedField.procedures.map(p => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Hệ thống tự xác định và hiển thị quầy dự kiến tương ứng */}
+                    {selectedCounter && (
+                      <div className="p-3.5 bg-blue-50 border border-blue-100 rounded-xl space-y-1.5">
+                        <div className="text-xs font-semibold text-blue-700 uppercase">
+                          Quầy phục vụ tương ứng (tự động xác định)
+                        </div>
+                        <div className="font-bold text-blue-900 text-base">
+                          Quầy {selectedCounter.code} — {selectedCounter.name}
+                        </div>
+                        <div className="text-xs text-blue-800">
+                          ⏱ Thời lượng phục vụ dự kiến: <strong>{slotMinutes} phút/lượt</strong> • Cấp số gọi ngay khi đặt lịch thành công.
+                        </div>
+                        {selectedCounter.today && (
+                          <div className="text-xs text-gray-600 pt-1 border-t border-blue-100 flex justify-between">
+                            <span>
+                              Đang gọi hôm nay:{" "}
+                              <strong>
+                                {selectedCounter.today.currentlyServing?.length > 0
+                                  ? selectedCounter.today.currentlyServing.map(s => s.displayNumber).join(", ")
+                                  : "Chưa gọi"}
+                              </strong>
+                            </span>
+                            <span>
+                              Đang chờ: <strong>{selectedCounter.today.waitingCount} lượt</strong>
+                            </span>
                           </div>
                         )}
                       </div>
                     )}
 
-                    {!rescheduleTarget && (
-                      <div className="space-y-3 pt-2 border-t border-gray-100">
-                        <Text className="font-bold text-gray-800 text-base">4. Thông tin liên hệ tối thiểu</Text>
+                    <button
+                      type="button"
+                      disabled={!selectedFieldId}
+                      onClick={() => setStep(2)}
+                      className="w-full min-h-[48px] bg-blue-600 disabled:bg-gray-300 text-white rounded-xl font-bold text-base shadow-sm"
+                    >
+                      Tiếp tục chọn ngày & khung giờ
+                    </button>
+                  </Box>
+                )}
+
+                {/* ───────── BƯỚC 2: CHỌN LỊCH (MỤC 6.2) ───────── */}
+                {step === 2 && (
+                  <Box className="bg-white rounded-2xl p-4 shadow-sm space-y-4">
+                    <div className="flex items-center justify-between">
+                      <Text className="font-bold text-gray-900 text-base">
+                        Bước 2 — Chọn ngày & khung giờ
+                      </Text>
+                      <span className="text-xs font-semibold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg">
+                        Quầy {selectedCounter?.code}
+                      </span>
+                    </div>
+
+                    {availLoading || availError ? (
+                      <RemoteState
+                        loading={availLoading}
+                        error={availError}
+                        reload={() => loadAvailability(selectedFieldId)}
+                      />
+                    ) : availability ? (
+                      <>
                         <div>
-                          <label className="block text-sm text-gray-600 mb-1">Họ và tên người đến làm thủ tục *</label>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Chọn ngày làm việc
+                          </label>
+                          <div className="flex gap-2 overflow-x-auto pb-1">
+                            {(availability.days || []).map(d => {
+                              const hasSlot = !d.closed && (d.slots || []).some(s => s.available);
+                              const active = d.date === selectedDate;
+                              const wdName = WEEKDAY_NAMES[d.weekday] ?? "";
+                              return (
+                                <button
+                                  key={d.date}
+                                  type="button"
+                                  disabled={!hasSlot}
+                                  onClick={() => {
+                                    setSelectedDate(d.date);
+                                    setSelectedSlot("");
+                                  }}
+                                  className={`min-h-[52px] px-3 py-2 rounded-xl border text-left flex-shrink-0 ${
+                                    active
+                                      ? "bg-blue-600 text-white border-blue-600"
+                                      : hasSlot
+                                      ? "bg-white text-gray-800 border-gray-200"
+                                      : "bg-gray-100 text-gray-400 border-gray-100"
+                                  }`}
+                                >
+                                  <div className="text-xs font-bold">
+                                    {wdName} ({d.date.slice(8, 10)}/{d.date.slice(5, 7)})
+                                  </div>
+                                  <div className="text-[11px]">
+                                    {hasSlot ? `Còn ${d.remainingDayQuota ?? ""} lượt` : "Nghỉ / Đủ lượt"}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {currentDayObj && (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Chọn khung giờ còn nhận lịch ({slotMinutes} phút/lượt)
+                            </label>
+                            {currentDayObj.closed ? (
+                              <div className="p-3 bg-red-50 text-red-700 rounded-xl text-sm">
+                                {currentDayObj.closureNote || "Ngày nghỉ theo lịch làm việc"}
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-2 gap-2">
+                                {(currentDayObj.slots || []).map(s => (
+                                  <button
+                                    key={s.slot}
+                                    type="button"
+                                    disabled={!s.available}
+                                    onClick={() => setSelectedSlot(s.slot)}
+                                    className={`min-h-[48px] py-2 px-3 rounded-xl border text-left text-sm font-semibold transition-colors ${
+                                      selectedSlot === s.slot
+                                        ? "bg-blue-600 text-white border-blue-600"
+                                        : s.available
+                                        ? "bg-white text-gray-800 border-gray-200"
+                                        : "bg-gray-100 text-gray-400 border-gray-100 line-through"
+                                    }`}
+                                  >
+                                    <div>{formatSlotDisplay(s.slot, slotMinutes)}</div>
+                                    <div className="text-[11px] font-normal">
+                                      {s.available ? `Còn ${s.remaining} chỗ` : "Đã qua / Hết chỗ"}
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    ) : null}
+
+                    <div className="flex gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setStep(1)}
+                        className="min-h-[48px] px-4 bg-gray-100 text-gray-700 rounded-xl font-semibold text-base"
+                      >
+                        Quay lại
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!selectedDate || !selectedSlot}
+                        onClick={() => setStep(3)}
+                        className="flex-1 min-h-[48px] bg-blue-600 disabled:bg-gray-300 text-white rounded-xl font-bold text-base"
+                      >
+                        Tiếp tục xác nhận
+                      </button>
+                    </div>
+                  </Box>
+                )}
+
+                {/* ───────── BƯỚC 3: XÁC NHẬN & NHẬN SỐ NGAY (MỤC 6.2) ───────── */}
+                {step === 3 && (
+                  <Box className="bg-white rounded-2xl p-5 shadow-sm space-y-4">
+                    <Text className="font-bold text-gray-900 text-lg">
+                      {rescheduleTarget ? "Bước 3 — Xác nhận đổi lịch hẹn" : "Bước 3 — Kiểm tra & Xác nhận đặt lịch"}
+                    </Text>
+
+                    <div className="space-y-2 text-base text-gray-700 bg-blue-50/70 border border-blue-100 p-4 rounded-xl">
+                      <div>
+                        Lĩnh vực: <strong>{selectedField?.label}</strong>
+                      </div>
+                      {selectedProcedure && (
+                        <div>
+                          Thủ tục: <strong>{selectedProcedure.name}</strong>
+                        </div>
+                      )}
+                      <div>
+                        Quầy phục vụ: <strong>Quầy {selectedCounter?.code} — {selectedCounter?.name}</strong>
+                      </div>
+                      <div>
+                        Ngày hẹn: <strong>{selectedDate}</strong>
+                      </div>
+                      <div>
+                        Khung giờ dự kiến: <strong>{formatSlotDisplay(selectedSlot, slotMinutes)}</strong>
+                      </div>
+                    </div>
+
+                    {!rescheduleTarget && (
+                      <div className="space-y-3 pt-1">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Họ và tên người đến làm thủ tục *
+                          </label>
                           <input
                             className="w-full min-h-[44px] px-3 py-2 border border-gray-200 rounded-xl text-base"
-                            placeholder="Nhập họ và tên"
+                            placeholder="Nhập họ và tên của bạn"
                             value={contactName}
                             onChange={e => setContactName(e.target.value)}
                           />
                         </div>
                         <div>
-                          <label className="block text-sm text-gray-600 mb-1">Số điện thoại (tùy chọn)</label>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Số điện thoại liên hệ (không bắt buộc)
+                          </label>
                           <input
                             type="tel"
                             className="w-full min-h-[44px] px-3 py-2 border border-gray-200 rounded-xl text-base"
@@ -757,13 +847,28 @@ export default function QueuePage() {
                       </div>
                     )}
 
-                    <button
-                      disabled={!selectedDate || !selectedSlot || (!rescheduleTarget && contactName.trim().length < 2)}
-                      onClick={() => setReviewStep(true)}
-                      className="w-full min-h-[48px] bg-blue-600 disabled:bg-gray-300 text-white rounded-xl font-bold text-base"
-                    >
-                      Tiếp tục xem lại & xác nhận
-                    </button>
+                    <div className="p-3 bg-gray-50 rounded-xl text-xs text-gray-600">
+                      Hệ thống sẽ giữ khung giờ và <strong>cấp ngay số gọi tại quầy</strong> cho bạn. Khi đến Trung tâm đúng khung giờ đã chọn, bạn chỉ cần trình phiếu xác nhận và chờ gọi số.
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="min-h-[48px] px-4 bg-gray-100 text-gray-700 rounded-xl font-semibold text-base"
+                        onClick={() => setStep(2)}
+                        disabled={bookingBusy}
+                      >
+                        Quay lại
+                      </button>
+                      <button
+                        type="button"
+                        className="flex-1 min-h-[48px] bg-blue-600 text-white rounded-xl font-bold text-base disabled:opacity-50"
+                        onClick={handleConfirmBooking}
+                        disabled={bookingBusy || (!rescheduleTarget && contactName.trim().length < 2)}
+                      >
+                        {bookingBusy ? "Đang cấp số..." : "Xác nhận & Nhận số ngay"}
+                      </button>
+                    </div>
                   </Box>
                 )}
               </>
@@ -771,11 +876,140 @@ export default function QueuePage() {
           </div>
         )}
 
-        {/* ══════════════════ TAB 3: TRA CỨU & SỐ CỦA TÔI ══════════════════ */}
-        {tab === "lookup" && (
+        {/* ══════════════════ TAB 2: LỊCH HẸN CỦA TÔI (SẮP TỚI / LỊCH SỬ / TRA CỨU MÃ — MỤC 6.4) ══════════════════ */}
+        {tab === "mine" && (
           <div className="space-y-4 px-4">
+            {/* Nút chuyển Sắp tới / Lịch sử */}
+            <div className="grid grid-cols-2 gap-2 bg-white p-1.5 rounded-xl shadow-sm">
+              <button
+                type="button"
+                onClick={() => setMineSection("upcoming")}
+                className={`min-h-[44px] rounded-lg text-sm font-semibold transition-colors ${
+                  mineSection === "upcoming" ? "bg-blue-50 text-blue-700 border border-blue-200" : "text-gray-600"
+                }`}
+              >
+                Sắp tới ({upcomingList.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setMineSection("history")}
+                className={`min-h-[44px] rounded-lg text-sm font-semibold transition-colors ${
+                  mineSection === "history" ? "bg-blue-50 text-blue-700 border border-blue-200" : "text-gray-600"
+                }`}
+              >
+                Lịch sử ({historyList.length})
+              </button>
+            </div>
+
+            {myLoading && <Text className="text-sm text-gray-500 px-1">Đang đồng bộ lịch hẹn của bạn...</Text>}
+
+            {/* Danh sách Sắp tới hoặc Lịch sử */}
             <Box className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
-              <Text className="font-bold text-gray-800 text-base">Tra cứu bằng mã số / mã lịch hẹn</Text>
+              <Text className="font-bold text-gray-800 text-base">
+                {mineSection === "upcoming" ? "Lịch hẹn sắp tới của tôi" : "Lịch sử đặt lịch (Hoàn tất / Đã hủy / Vắng mặt)"}
+              </Text>
+
+              {(mineSection === "upcoming" ? upcomingList : historyList).length === 0 ? (
+                <div className="py-4 text-center space-y-2">
+                  <Text className="text-sm text-gray-500">
+                    {mineSection === "upcoming"
+                      ? "Bạn chưa có lịch hẹn nào sắp tới."
+                      : "Chưa có lịch hẹn nào trong lịch sử."}
+                  </Text>
+                  {mineSection === "upcoming" && (
+                    <button
+                      type="button"
+                      onClick={() => switchTab("book")}
+                      className="min-h-[44px] px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold"
+                    >
+                      Đặt lịch đến Trung tâm ngay
+                    </button>
+                  )}
+                </div>
+              ) : (
+                (mineSection === "upcoming" ? upcomingList : historyList).map(a => {
+                  const badge = getStatusBadge(a);
+                  const callNum = a.displayNumber || a.ticket?.displayNumber;
+                  return (
+                    <div key={a.id} className="p-3.5 border border-gray-200 rounded-2xl space-y-2.5 bg-gray-50/50">
+                      <div className="flex justify-between items-start gap-2">
+                        <div>
+                          <div className="text-xs text-gray-500">Số gọi tại quầy</div>
+                          <div className="text-2xl font-extrabold text-blue-700">
+                            {callNum || "Đang cấp"}
+                          </div>
+                        </div>
+                        <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${badge.cls}`}>
+                          {badge.label}
+                        </span>
+                      </div>
+
+                      <div className="text-sm text-gray-800 space-y-1">
+                        <div>
+                          📅 <strong>{a.serviceDate}</strong> • Khung giờ{" "}
+                          <strong>{a.slotRange || formatSlotDisplay(a.slot, 30)}</strong>
+                        </div>
+                        <div>
+                          🏛 <strong>Quầy {a.counter?.code}</strong> — {a.counter?.name}
+                        </div>
+                        {(a.fieldLabel || a.procedureName) && (
+                          <div className="text-xs text-gray-600">
+                            📋 {a.procedureName || a.fieldLabel}
+                          </div>
+                        )}
+                        <div className="text-xs text-gray-500">
+                          Mã hẹn: <code className="font-mono font-bold text-gray-800">{a.lookupCode}</code>
+                        </div>
+                      </div>
+
+                      <div className="text-xs text-blue-800 bg-blue-50 p-2.5 rounded-xl">
+                        📌 Đến đúng khung giờ, trình phiếu tại quầy và chờ gọi số.
+                      </div>
+
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <button
+                          type="button"
+                          className="min-h-[44px] px-3 py-1.5 text-sm font-semibold text-blue-700 bg-blue-100 rounded-xl"
+                          onClick={() => {
+                            setBookedAppt(a);
+                            switchTab("book");
+                          }}
+                        >
+                          Xem phiếu xác nhận
+                        </button>
+                        {a.status === "CONFIRMED" && (!a.ticket || a.ticket.status === "WAITING") && (
+                          <>
+                            <button
+                              type="button"
+                              className="min-h-[44px] px-3 py-1.5 text-sm font-semibold text-gray-700 bg-gray-100 rounded-xl"
+                              onClick={() => {
+                                setRescheduleTarget(a);
+                                setBookedAppt(null);
+                                setStep(2);
+                                switchTab("book");
+                              }}
+                            >
+                              Đổi lịch
+                            </button>
+                            <button
+                              type="button"
+                              className="min-h-[44px] px-3 py-1.5 text-sm font-semibold text-red-600 bg-red-50 rounded-xl"
+                              onClick={() => handleCancelMyAppointment(a.id)}
+                            >
+                              Hủy lịch
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </Box>
+
+            {/* Khung tra cứu bằng mã hẹn / mã số (dành cho cả thiết bị không đăng nhập Zalo) */}
+            <Box className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
+              <Text className="font-bold text-gray-800 text-base">Tra cứu nhanh bằng mã hẹn</Text>
               <form
                 onSubmit={e => {
                   e.preventDefault();
@@ -785,7 +1019,7 @@ export default function QueuePage() {
               >
                 <input
                   className="flex-1 min-h-[44px] px-3 py-2 border border-gray-200 rounded-xl text-base font-mono uppercase"
-                  placeholder="Nhập mã (VD: T... hoặc A...)"
+                  placeholder="Nhập mã hẹn (VD: A... hoặc T...)"
                   value={lookupCodeInput}
                   onChange={e => setLookupCodeInput(e.target.value)}
                 />
@@ -805,6 +1039,7 @@ export default function QueuePage() {
                     {savedCodes.map(code => (
                       <button
                         key={code}
+                        type="button"
                         onClick={() => runCodeLookup(code)}
                         className="px-2.5 py-1.5 bg-gray-100 rounded-lg text-xs font-mono font-semibold text-blue-700"
                       >
@@ -819,129 +1054,57 @@ export default function QueuePage() {
               {lookupErr && <Text className="text-sm text-red-600">{lookupErr}</Text>}
 
               {lookupData && (
-                <div className="p-4 bg-blue-50 rounded-xl space-y-2 text-base">
+                <div className="p-4 bg-blue-50 rounded-xl space-y-2 text-base border border-blue-100">
                   {lookupData.kind === "TICKET" ? (
                     <>
                       <div className="flex justify-between items-center">
-                        <span className="text-2xl font-extrabold text-blue-800">{lookupData.ticket.displayNumber}</span>
-                        <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${TICKET_STATUS_TEXT[lookupData.ticket.status]?.cls || ""}`}>
-                          {TICKET_STATUS_TEXT[lookupData.ticket.status]?.label || lookupData.ticket.status}
+                        <span className="text-2xl font-extrabold text-blue-800">
+                          {lookupData.ticket.displayNumber}
+                        </span>
+                        <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${getStatusBadge(lookupData.ticket).cls}`}>
+                          {getStatusBadge(lookupData.ticket).label}
                         </span>
                       </div>
                       <div className="text-sm text-gray-700">
                         Quầy {lookupData.ticket.counter.code} — {lookupData.ticket.counter.name} • Ngày {lookupData.ticket.serviceDate}
+                        {lookupData.ticket.slotRange ? ` • Khung giờ ${lookupData.ticket.slotRange}` : ""}
                       </div>
-                      {lookupData.ticket.status === "WAITING" && (
-                        <div className="text-sm font-semibold text-blue-900">
-                          Còn {lookupData.ticket.aheadCount} người chờ phía trước
-                          {lookupData.ticket.currentlyServing && ` (Đang gọi: ${lookupData.ticket.currentlyServing.displayNumber})`}
-                        </div>
-                      )}
+                      <div className="text-xs text-blue-800">
+                        📌 Đến đúng khung giờ, trình phiếu tại quầy và chờ gọi số.
+                      </div>
                     </>
                   ) : (
                     <>
                       <div className="flex justify-between items-center">
-                        <span className="font-mono font-bold text-blue-800">{lookupData.appointment.lookupCode}</span>
-                        <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${APPT_STATUS_TEXT[lookupData.appointment.status]?.cls || ""}`}>
-                          {APPT_STATUS_TEXT[lookupData.appointment.status]?.label || lookupData.appointment.status}
+                        <div>
+                          <div className="text-xs text-gray-500">Số gọi đã cấp</div>
+                          <div className="text-2xl font-extrabold text-blue-800">
+                            {lookupData.appointment.displayNumber || lookupData.appointment.ticket?.displayNumber || lookupData.appointment.lookupCode}
+                          </div>
+                        </div>
+                        <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${getStatusBadge(lookupData.appointment).cls}`}>
+                          {getStatusBadge(lookupData.appointment).label}
                         </span>
                       </div>
                       <div className="text-sm text-gray-700">
-                        Ngày {lookupData.appointment.serviceDate} • Khung giờ <strong>{lookupData.appointment.slot}</strong>
+                        Ngày <strong>{lookupData.appointment.serviceDate}</strong> • Khung giờ{" "}
+                        <strong>{lookupData.appointment.slotRange || lookupData.appointment.slot}</strong>
                       </div>
                       <div className="text-sm text-gray-700">
-                        Quầy {lookupData.appointment.counter.code} — {lookupData.appointment.counter.name}
+                        Quầy {lookupData.appointment.counter.code} — {lookupData.appointment.counter.name} • Mã hẹn:{" "}
+                        <strong className="font-mono">{lookupData.appointment.lookupCode}</strong>
                       </div>
-                      {lookupData.appointment.ticket && (
-                        <div className="text-sm font-semibold text-green-800">
-                          Số thứ tự sau check-in: {lookupData.appointment.ticket.displayNumber}
-                        </div>
-                      )}
+                      <div className="text-xs text-blue-800">
+                        📌 Đến đúng khung giờ, trình phiếu tại quầy và chờ gọi số.
+                      </div>
                     </>
                   )}
                 </div>
               )}
             </Box>
-
-            {/* Danh sách theo tài khoản Zalo (nếu đang mở trong Zalo) */}
-            {myLoading && <Text className="text-sm text-gray-500 px-1">Đang đồng bộ phiếu của bạn...</Text>}
-            {myItems && (
-              <>
-                <Box className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
-                  <Text className="font-bold text-gray-800 text-base">Số thứ tự hôm nay của tôi</Text>
-                  {(myItems.tickets || []).length === 0 ? (
-                    <Text className="text-sm text-gray-500">Bạn chưa có phiếu số thứ tự nào trong hôm nay.</Text>
-                  ) : (
-                    myItems.tickets.map(t => (
-                      <div key={t.id} className="p-3 border border-gray-100 rounded-xl space-y-2">
-                        <div className="flex justify-between items-center">
-                          <span className="text-xl font-bold text-blue-700">{t.displayNumber}</span>
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${TICKET_STATUS_TEXT[t.status]?.cls || ""}`}>
-                            {TICKET_STATUS_TEXT[t.status]?.label || t.status}
-                          </span>
-                        </div>
-                        <div className="text-sm text-gray-600">
-                          Quầy {t.counter.code} • Mã: <code className="font-mono">{t.lookupCode}</code>
-                          {t.status === "WAITING" && ` • Còn ${t.aheadCount} người phía trước`}
-                        </div>
-                        {t.status === "WAITING" && (
-                          <button
-                            className="min-h-[44px] px-3 py-1.5 text-sm font-semibold text-red-600 bg-red-50 rounded-lg"
-                            onClick={() => handleCancelMyTicket(t.id)}
-                          >
-                            Hủy phiếu số
-                          </button>
-                        )}
-                      </div>
-                    ))
-                  )}
-                </Box>
-
-                <Box className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
-                  <Text className="font-bold text-gray-800 text-base">Lịch hẹn của tôi</Text>
-                  {(myItems.appointments || []).length === 0 ? (
-                    <Text className="text-sm text-gray-500">Bạn chưa có lịch hẹn nào.</Text>
-                  ) : (
-                    myItems.appointments.map(a => (
-                      <div key={a.id} className="p-3 border border-gray-100 rounded-xl space-y-2">
-                        <div className="flex justify-between items-center">
-                          <span className="font-semibold text-gray-900">{a.serviceDate} • {a.slot}</span>
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${APPT_STATUS_TEXT[a.status]?.cls || ""}`}>
-                            {APPT_STATUS_TEXT[a.status]?.label || a.status}
-                          </span>
-                        </div>
-                        <div className="text-sm text-gray-600">
-                          Quầy {a.counter.code} • Mã: <code className="font-mono">{a.lookupCode}</code>
-                        </div>
-                        {a.status === "CONFIRMED" && (
-                          <div className="flex gap-2">
-                            <button
-                              className="min-h-[44px] px-3 py-1.5 text-sm font-semibold text-blue-600 bg-blue-50 rounded-lg"
-                              onClick={() => {
-                                setRescheduleTarget(a);
-                                switchTab("appointment");
-                              }}
-                            >
-                              Đổi lịch
-                            </button>
-                            <button
-                              className="min-h-[44px] px-3 py-1.5 text-sm font-semibold text-red-600 bg-red-50 rounded-lg"
-                              onClick={() => handleCancelMyAppointment(a.id)}
-                            >
-                              Hủy lịch
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    ))
-                  )}
-                </Box>
-              </>
-            )}
           </div>
         )}
       </div>
     </Page>
   );
 }
-

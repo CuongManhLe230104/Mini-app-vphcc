@@ -60,16 +60,16 @@ export class QueueController {
     return this.queueService.lookupByCode(code);
   }
 
-  // ───────── NGƯỜI DÂN (XÁC THỰC ZALO) ─────────
+  // ───────── NGƯỜI DÂN (XÁC THỰC ZALO HOẶC PHIÊN THIẾT BỊ) ─────────
 
   @Get('mine')
-  @UseGuards(JwtAuthGuard, CitizenGuard)
+  @UseGuards(CitizenGuard)
   getMine(@CurrentUser() user: any) {
     return this.queueService.getMyItems(user.id);
   }
 
   @Post('tickets')
-  @UseGuards(JwtAuthGuard, CitizenGuard)
+  @UseGuards(CitizenGuard)
   @RateLimit({ limit: 10, windowMs: 60000, by: 'user' })
   issueTicket(
     @CurrentUser() user: any,
@@ -80,7 +80,7 @@ export class QueueController {
   }
 
   @Post('tickets/:id/cancel')
-  @UseGuards(JwtAuthGuard, CitizenGuard)
+  @UseGuards(CitizenGuard)
   cancelTicket(
     @CurrentUser() user: any,
     @Param('id', ParseUUIDPipe) id: string,
@@ -90,7 +90,7 @@ export class QueueController {
   }
 
   @Post('appointments')
-  @UseGuards(JwtAuthGuard, CitizenGuard)
+  @UseGuards(CitizenGuard)
   @RateLimit({ limit: 10, windowMs: 60000, by: 'user' })
   createAppointment(
     @CurrentUser() user: any,
@@ -101,7 +101,7 @@ export class QueueController {
   }
 
   @Post('appointments/:id/cancel')
-  @UseGuards(JwtAuthGuard, CitizenGuard)
+  @UseGuards(CitizenGuard)
   cancelAppointment(
     @CurrentUser() user: any,
     @Param('id', ParseUUIDPipe) id: string,
@@ -111,7 +111,7 @@ export class QueueController {
   }
 
   @Post('appointments/:id/reschedule')
-  @UseGuards(JwtAuthGuard, CitizenGuard)
+  @UseGuards(CitizenGuard)
   @RateLimit({ limit: 10, windowMs: 60000, by: 'user' })
   rescheduleAppointment(
     @CurrentUser() user: any,
@@ -258,6 +258,13 @@ export class QueueController {
   @Roles(AdminRole.SUPER_ADMIN)
   getStaffCandidates() {
     return this.queueService.getStaffCandidates();
+  }
+
+  @Post('admin/setup-standard-counters')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(AdminRole.SUPER_ADMIN)
+  setupStandardCounters(@CurrentUser() user: any) {
+    return this.queueService.setupStandardCounters(user.id);
   }
 
   @Post('admin/counters')

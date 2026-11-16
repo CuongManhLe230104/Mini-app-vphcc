@@ -4,6 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { auditedWrite } from '../audit/audited-write';
 import {
   ACTIVE_TICKET_STATUSES,
+  calculateCounterCapacitySummary,
+  CONFIRMED_FOUR_COUNTERS_PRESET,
   CounterConfig,
   displayNumber,
   evaluateReadiness,
@@ -12,6 +14,7 @@ import {
   IDEMPOTENCY_KEY_RE,
   LOOKUP_CODE_RE,
   maskPhone,
+  resolveUnifiedTurnStatus,
   scopedIdempotencyKey,
   validateCounterConfig,
 } from './queue-rules';
@@ -35,6 +38,7 @@ import {
   appointmentView,
   badRequest,
   conflict,
+  formatSlotRange,
   notFound,
   recordEvent,
   ticketView,
@@ -437,14 +441,79 @@ export class QueueService {
     );
   }
 
+  /**
+   * Đảm bảo các lịch hẹn CONFIRMED cũ (trước khi nâng cấp luồng gộp) đều được cấp 1-1 QueueTicket WAITING.
+   */
+  async ensureAppointmentTicketsForCounterDate(counterId: string, dateStr: string) {
+    const serviceDate = parseDateOnly(dateStr);
+    const missing = await this.prisma.appointment.findMany({
+      where: {
+        counterId,
+        serviceDate,
+        status: 'CONFIRMED',
+        tickets: { none: {} },
+      },
+      include: { counter: true },
+      orderBy: [{ slotStart: 'asc' }, { createdAt: 'asc' }],
+    });
+    if (!missing.length) return 0;
+
+    return withRetry(() =>
+      this.prisma.$transaction(async tx => {
+        const dayLock = await lockCounterDay(tx, counterId, dateStr);
+        let currentSeq = dayLock.lastSequence;
+        let issued = 0;
+
+        for (const appt of missing) {
+          const already = await tx.queueTicket.findFirst({ where: { appointmentId: appt.id } });
+          if (already) continue;
+          const seq = await nextSequence(tx, dayLock.id, currentSeq);
+          currentSeq = seq;
+          const ticket = await tx.queueTicket.create({
+            data: {
+              counterId: appt.counterId,
+              serviceDate: appt.serviceDate,
+              sequence: seq,
+              displayNumber: displayNumber(appt.counter.code, seq),
+              source: 'APPOINTMENT',
+              status: 'WAITING',
+              lookupCode: generateLookupCode('T'),
+              citizenId: appt.citizenId,
+              fieldId: appt.fieldId,
+              procedureId: appt.procedureId,
+              appointmentId: appt.id,
+            },
+          });
+          await recordEvent(tx, {
+            counterId: appt.counterId,
+            ticketId: ticket.id,
+            appointmentId: appt.id,
+            type: 'APPOINTMENT_TICKET_BACKFILLED',
+            actor: { type: 'SYSTEM' },
+            detail: { sequence: seq, displayNumber: ticket.displayNumber, slot: appt.slotStart },
+          });
+          issued++;
+        }
+        return issued;
+      }, TX_OPTIONS),
+    );
+  }
+
   async createAppointment(citizenId: string, dto: CreateAppointmentDto, rawIdempotencyKey?: string, now: Date = new Date()) {
     const idemKey = this.normalizeIdempotencyKey('c', citizenId, rawIdempotencyKey);
     if (idemKey) {
       const existing = await this.prisma.appointment.findUnique({
         where: { idempotencyKey: idemKey },
-        include: { counter: true },
+        include: { counter: true, procedure: { select: { id: true, name: true } }, tickets: true },
       });
-      if (existing) return appointmentView(existing, existing.counter, { idempotentReplay: true });
+      if (existing) {
+        const existingTicket = existing.tickets[0] ? ticketView(existing.tickets[0], existing.counter) : null;
+        return appointmentView(existing, existing.counter, {
+          procedureName: existing.procedure?.name ?? null,
+          ticket: existingTicket,
+          idempotentReplay: true,
+        });
+      }
     }
 
     const mapping = await this.prisma.counterField.findUnique({
@@ -453,11 +522,13 @@ export class QueueService {
     });
     if (!mapping) throw notFound('Lĩnh vực này chưa được phân công quầy phụ trách');
 
+    let procName: string | null = null;
     if (dto.procedureId) {
       const proc = await this.prisma.procedure.findFirst({
         where: { id: dto.procedureId, fieldId: dto.fieldId, isValid: true },
       });
       if (!proc) throw badRequest('INVALID_PROCEDURE', 'Thủ tục không thuộc lĩnh vực đã chọn');
+      procName = proc.name;
     }
 
     const counter = mapping.counter;
@@ -497,11 +568,22 @@ export class QueueService {
     return withRetry(() =>
       this.prisma.$transaction(async tx => {
         if (idemKey) {
-          const dup = await tx.appointment.findUnique({ where: { idempotencyKey: idemKey } });
-          if (dup) return appointmentView(dup, counter, { idempotentReplay: true });
+          const dup = await tx.appointment.findUnique({
+            where: { idempotencyKey: idemKey },
+            include: { tickets: true },
+          });
+          if (dup) {
+            const dupTicket = dup.tickets[0] ? ticketView(dup.tickets[0], counter) : null;
+            return appointmentView(dup, counter, {
+              fieldLabel: mapping.field.label,
+              procedureName: procName,
+              ticket: dupTicket,
+              idempotentReplay: true,
+            });
+          }
         }
 
-        await lockCounterDay(tx, counter.id, dto.date);
+        const dayLock = await lockCounterDay(tx, counter.id, dto.date);
 
         const activeAppts = await tx.appointment.count({
           where: {
@@ -561,60 +643,150 @@ export class QueueService {
           },
         });
 
+        // Cấp số gọi ngay khi đặt lịch thành công trong cùng giao dịch (Mục 1.1 & Mục 8.1)
+        const seq = await nextSequence(tx, dayLock.id, dayLock.lastSequence);
+        const ticket = await tx.queueTicket.create({
+          data: {
+            counterId: counter.id,
+            serviceDate,
+            sequence: seq,
+            displayNumber: displayNumber(counter.code, seq),
+            source: 'APPOINTMENT',
+            status: 'WAITING',
+            lookupCode: generateLookupCode('T'),
+            citizenId,
+            fieldId: dto.fieldId,
+            procedureId: dto.procedureId,
+            appointmentId: appt.id,
+          },
+        });
+
         await recordEvent(tx, {
           counterId: counter.id,
+          ticketId: ticket.id,
           appointmentId: appt.id,
           type: 'APPOINTMENT_CREATED',
           actor: { type: 'CITIZEN', id: citizenId },
-          detail: { serviceDate: dto.date, slot: dto.slot, slotSeat: freeSeat },
+          detail: {
+            serviceDate: dto.date,
+            slot: dto.slot,
+            slotSeat: freeSeat,
+            sequence: seq,
+            displayNumber: ticket.displayNumber,
+          },
         });
 
-        return appointmentView(appt, counter, { fieldLabel: mapping.field.label });
+        return appointmentView(appt, counter, {
+          fieldLabel: mapping.field.label,
+          procedureName: procName,
+          ticket: ticketView(ticket, counter),
+        });
       }, TX_OPTIONS),
     );
   }
 
   async getMyItems(citizenId: string, now: Date = new Date()) {
-    const todayDate = parseDateOnly(vnToday(now));
-    const [tickets, appointments] = await Promise.all([
+    const todayStr = vnToday(now);
+    const todayDate = parseDateOnly(todayStr);
+    const minutesNow = vnMinutesOfDay(now);
+
+    const legacyMissing = await this.prisma.appointment.findMany({
+      where: { citizenId, status: 'CONFIRMED', tickets: { none: {} } },
+      select: { counterId: true, serviceDate: true },
+    });
+    const seenPairs = new Set<string>();
+    for (const item of legacyMissing) {
+      const ds = formatDateOnly(item.serviceDate);
+      const key = `${item.counterId}:${ds}`;
+      if (!seenPairs.has(key)) {
+        seenPairs.add(key);
+        await this.ensureAppointmentTicketsForCounterDate(item.counterId, ds);
+      }
+    }
+
+    const [tickets, appointments, fields] = await Promise.all([
       this.prisma.queueTicket.findMany({
         where: { citizenId, serviceDate: { gte: todayDate } },
         orderBy: [{ serviceDate: 'desc' }, { sequence: 'desc' }],
         take: 20,
-        include: { counter: true },
+        include: { counter: true, procedure: { select: { id: true, name: true } } },
       }),
       this.prisma.appointment.findMany({
         where: { citizenId },
         orderBy: [{ serviceDate: 'desc' }, { slotStart: 'asc' }],
-        take: 20,
-        include: { counter: true, tickets: { select: { id: true, displayNumber: true, status: true, lookupCode: true } } },
+        take: 30,
+        include: {
+          counter: true,
+          procedure: { select: { id: true, name: true } },
+          tickets: { select: { id: true, displayNumber: true, sequence: true, status: true, lookupCode: true, callCount: true } },
+        },
       }),
+      this.prisma.procedureField.findMany({ select: { id: true, label: true } }),
     ]);
+
+    const fieldMap = new Map(fields.map(f => [f.id, f.label]));
 
     const ticketViews = [];
     for (const t of tickets) {
       const ahead = t.status === 'WAITING' ? await this.aheadCount(this.prisma, t.counterId, t.serviceDate, t.sequence) : 0;
-      ticketViews.push(ticketView(t, t.counter, { aheadCount: ahead }));
+      ticketViews.push(
+        ticketView(t, t.counter, {
+          aheadCount: ahead,
+          fieldLabel: t.fieldId ? (fieldMap.get(t.fieldId) ?? null) : null,
+          procedureName: t.procedure?.name ?? null,
+        }),
+      );
     }
+
+    const allAppointments = appointments.map(a => {
+      const dateStr = formatDateOnly(a.serviceDate);
+      const duration = a.counter.slotMinutes ?? 30;
+      const isPastSlot =
+        dateStr < todayStr ||
+        (dateStr === todayStr && timeToMinutes(a.slotStart) + duration <= minutesNow);
+      const t = a.tickets[0] ?? null;
+      const view = appointmentView(a, a.counter, {
+        fieldLabel: fieldMap.get(a.fieldId) ?? null,
+        procedureName: a.procedure?.name ?? null,
+        ticket: t,
+        isPastSlot,
+      });
+      const isActiveStatus =
+        (a.status === 'CONFIRMED' || a.status === 'CHECKED_IN') &&
+        (!t || ['WAITING', 'CALLING', 'SERVING'].includes(t.status));
+      const isUpcoming = isActiveStatus && dateStr >= todayStr;
+      return { ...view, isUpcoming };
+    });
+
+    const upcomingAppointments = allAppointments
+      .filter(a => a.isUpcoming)
+      .sort((a, b) => a.serviceDate.localeCompare(b.serviceDate) || a.slot.localeCompare(b.slot));
+    const historyAppointments = allAppointments.filter(a => !a.isUpcoming);
 
     return {
       tickets: ticketViews,
-      appointments: appointments.map(a =>
-        appointmentView(a, a.counter, { ticket: a.tickets[0] ?? null }),
-      ),
+      appointments: allAppointments,
+      upcomingAppointments,
+      historyAppointments,
     };
   }
 
-  async lookupByCode(rawCode: string) {
+  async lookupByCode(rawCode: string, now: Date = new Date()) {
     const code = String(rawCode ?? '').trim().toUpperCase();
     if (!LOOKUP_CODE_RE.test(code)) {
       throw badRequest('INVALID_LOOKUP_CODE', 'Mã tra cứu không đúng định dạng');
     }
+    const todayStr = vnToday(now);
+    const minutesNow = vnMinutesOfDay(now);
 
     if (code.startsWith('T')) {
       const t = await this.prisma.queueTicket.findUnique({
         where: { lookupCode: code },
-        include: { counter: true },
+        include: {
+          counter: true,
+          procedure: { select: { id: true, name: true } },
+          appointment: true,
+        },
       });
       if (!t) throw notFound('Không tìm thấy phiếu số với mã tra cứu này');
       const ahead = t.status === 'WAITING' ? await this.aheadCount(this.prisma, t.counterId, t.serviceDate, t.sequence) : 0;
@@ -625,15 +797,50 @@ export class QueueService {
       });
       return {
         kind: 'TICKET',
-        ticket: ticketView(t, t.counter, { aheadCount: ahead, currentlyServing: calling }),
+        ticket: ticketView(t, t.counter, {
+          aheadCount: ahead,
+          currentlyServing: calling,
+          procedureName: t.procedure?.name ?? null,
+          slot: t.appointment?.slotStart ?? null,
+          slotRange: t.appointment ? formatSlotRange(t.appointment.slotStart, t.counter.slotMinutes) : null,
+          appointmentLookupCode: t.appointment?.lookupCode ?? null,
+        }),
       };
     }
 
-    const a = await this.prisma.appointment.findUnique({
+    let a = await this.prisma.appointment.findUnique({
       where: { lookupCode: code },
-      include: { counter: true, tickets: { select: { id: true, displayNumber: true, status: true, lookupCode: true } } },
+      include: {
+        counter: true,
+        procedure: { select: { id: true, name: true } },
+        tickets: { select: { id: true, displayNumber: true, sequence: true, status: true, lookupCode: true, callCount: true } },
+      },
     });
     if (!a) throw notFound('Không tìm thấy lịch hẹn với mã tra cứu này');
+    if (a.status === 'CONFIRMED' && a.tickets.length === 0) {
+      await this.ensureAppointmentTicketsForCounterDate(a.counterId, formatDateOnly(a.serviceDate));
+      a = await this.prisma.appointment.findUniqueOrThrow({
+        where: { lookupCode: code },
+        include: {
+          counter: true,
+          procedure: { select: { id: true, name: true } },
+          tickets: { select: { id: true, displayNumber: true, sequence: true, status: true, lookupCode: true, callCount: true } },
+        },
+      });
+    }
+
+    const dateStr = formatDateOnly(a.serviceDate);
+    const duration = a.counter.slotMinutes ?? 30;
+    const isPastSlot =
+      dateStr < todayStr ||
+      (dateStr === todayStr && timeToMinutes(a.slotStart) + duration <= minutesNow);
+    const t = a.tickets[0] ?? null;
+    const unified = resolveUnifiedTurnStatus({
+      appointmentStatus: a.status,
+      ticketStatus: t?.status ?? null,
+      isPastSlot,
+    });
+
     // Công khai không trả tên đầy đủ hoặc số điện thoại nguyên bản
     return {
       kind: 'APPOINTMENT',
@@ -641,11 +848,17 @@ export class QueueService {
         id: a.id,
         lookupCode: a.lookupCode,
         status: a.status,
-        serviceDate: formatDateOnly(a.serviceDate),
+        unifiedStatus: unified.status,
+        unifiedStatusLabel: unified.label,
+        displayNumber: t?.displayNumber ?? null,
+        sequence: t?.sequence ?? null,
+        serviceDate: dateStr,
         slot: a.slotStart,
+        slotRange: formatSlotRange(a.slotStart, a.counter.slotMinutes),
         counter: { id: a.counter.id, code: a.counter.code, name: a.counter.name },
+        procedureName: a.procedure?.name ?? null,
         maskedPhone: maskPhone(a.contactPhone),
-        ticket: a.tickets[0] ?? null,
+        ticket: t,
         createdAt: a.createdAt,
       },
     };
@@ -667,16 +880,29 @@ export class QueueService {
         { finishedAt: new Date() },
         reason ? { reason } : undefined,
       );
+      if (ticket.appointmentId) {
+        await tx.appointment.updateMany({
+          where: { id: ticket.appointmentId, status: { in: ['CONFIRMED', 'CHECKED_IN'] } },
+          data: { status: 'CANCELLED', slotSeat: null, cancelReason: reason?.trim() || null, version: { increment: 1 } },
+        });
+      }
       return ticketView(updated, ticket.counter);
     }, TX_OPTIONS);
   }
 
   async cancelCitizenAppointment(citizenId: string, appointmentId: string, reason?: string) {
     return this.prisma.$transaction(async tx => {
-      const appt = await tx.appointment.findUnique({ where: { id: appointmentId }, include: { counter: true } });
+      const appt = await tx.appointment.findUnique({
+        where: { id: appointmentId },
+        include: { counter: true, tickets: true },
+      });
       if (!appt || appt.citizenId !== citizenId) throw notFound('Không tìm thấy lịch hẹn của bạn');
       if (appt.status !== 'CONFIRMED') {
-        throw conflict('CANNOT_CANCEL_APPOINTMENT', 'Chỉ có thể hủy lịch hẹn khi chưa check-in tại quầy');
+        throw conflict('CANNOT_CANCEL_APPOINTMENT', 'Chỉ có thể hủy lịch hẹn khi chưa được tiếp nhận tại quầy');
+      }
+      const activeCalled = appt.tickets.find(t => ['CALLING', 'SERVING', 'COMPLETED'].includes(t.status));
+      if (activeCalled) {
+        throw conflict('CANNOT_CANCEL_APPOINTMENT', 'Lịch hẹn đang được gọi hoặc đã tiếp nhận tại quầy, không thể hủy');
       }
       const res = await tx.appointment.updateMany({
         where: { id: appt.id, status: 'CONFIRMED', version: appt.version },
@@ -688,6 +914,21 @@ export class QueueService {
         },
       });
       if (res.count !== 1) throw conflict('CONFLICT', 'Lịch hẹn vừa thay đổi. Vui lòng tải lại.');
+
+      for (const linkedTicket of appt.tickets) {
+        if (linkedTicket.status === 'WAITING') {
+          await transitionTicket(
+            tx,
+            linkedTicket,
+            'CANCELLED',
+            { type: 'CITIZEN', id: citizenId },
+            'TICKET_CANCELLED_WITH_APPOINTMENT',
+            { finishedAt: new Date() },
+            reason ? { reason } : undefined,
+          );
+        }
+      }
+
       await recordEvent(tx, {
         counterId: appt.counterId,
         appointmentId: appt.id,
@@ -709,11 +950,14 @@ export class QueueService {
   ) {
     const oldAppt = await this.prisma.appointment.findUnique({
       where: { id: appointmentId },
-      include: { counter: { include: { schedules: true } } },
+      include: { counter: { include: { schedules: true } }, tickets: true },
     });
     if (!oldAppt || oldAppt.citizenId !== citizenId) throw notFound('Không tìm thấy lịch hẹn của bạn');
     if (oldAppt.status !== 'CONFIRMED') {
-      throw conflict('CANNOT_RESCHEDULE', 'Chỉ có thể đổi lịch khi lịch hẹn đang ở trạng thái đã xác nhận');
+      throw conflict('CANNOT_RESCHEDULE', 'Chỉ có thể đổi lịch khi lịch hẹn đang ở trạng thái đã đặt lịch');
+    }
+    if (oldAppt.tickets.some(t => ['CALLING', 'SERVING', 'COMPLETED'].includes(t.status))) {
+      throw conflict('CANNOT_RESCHEDULE', 'Lịch hẹn đang được gọi hoặc đã tiếp nhận, không thể đổi lịch');
     }
 
     const counter = oldAppt.counter;
@@ -752,13 +996,22 @@ export class QueueService {
     return withRetry(() =>
       this.prisma.$transaction(async tx => {
         if (idemKey) {
-          const dup = await tx.appointment.findUnique({ where: { idempotencyKey: idemKey } });
-          if (dup) return appointmentView(dup, counter, { idempotentReplay: true });
+          const dup = await tx.appointment.findUnique({
+            where: { idempotencyKey: idemKey },
+            include: { tickets: true },
+          });
+          if (dup) {
+            return appointmentView(dup, counter, {
+              ticket: dup.tickets[0] ? ticketView(dup.tickets[0], counter) : null,
+              idempotentReplay: true,
+            });
+          }
         }
 
         const oldDateStr = formatDateOnly(oldAppt.serviceDate);
-        for (const d of [oldDateStr, dto.date].sort()) {
-          await lockCounterDay(tx, counter.id, d);
+        const locks = new Map<string, { id: string; lastSequence: number }>();
+        for (const d of Array.from(new Set([oldDateStr, dto.date])).sort()) {
+          locks.set(d, await lockCounterDay(tx, counter.id, d));
         }
 
         const released = await tx.appointment.updateMany({
@@ -766,6 +1019,19 @@ export class QueueService {
           data: { status: 'RESCHEDULED', slotSeat: null, version: { increment: 1 } },
         });
         if (released.count !== 1) throw conflict('CONFLICT', 'Lịch hẹn vừa thay đổi. Vui lòng tải lại.');
+
+        for (const oldTicket of oldAppt.tickets) {
+          if (oldTicket.status === 'WAITING') {
+            await transitionTicket(
+              tx,
+              oldTicket,
+              'CANCELLED',
+              { type: 'CITIZEN', id: citizenId },
+              'TICKET_CANCELLED_ON_RESCHEDULE',
+              { finishedAt: new Date() },
+            );
+          }
+        }
 
         const heldCount = await tx.appointment.count({
           where: { counterId: counter.id, serviceDate: newDate, status: { in: HELD_APPOINTMENT_STATUSES } },
@@ -812,15 +1078,43 @@ export class QueueService {
           },
         });
 
+        const newDayLock = locks.get(dto.date)!;
+        const seq = await nextSequence(tx, newDayLock.id, newDayLock.lastSequence);
+        const newTicket = await tx.queueTicket.create({
+          data: {
+            counterId: counter.id,
+            serviceDate: newDate,
+            sequence: seq,
+            displayNumber: displayNumber(counter.code, seq),
+            source: 'APPOINTMENT',
+            status: 'WAITING',
+            lookupCode: generateLookupCode('T'),
+            citizenId,
+            fieldId: oldAppt.fieldId,
+            procedureId: oldAppt.procedureId,
+            appointmentId: created.id,
+          },
+        });
+
         await recordEvent(tx, {
           counterId: counter.id,
+          ticketId: newTicket.id,
           appointmentId: created.id,
           type: 'APPOINTMENT_RESCHEDULED',
           actor: { type: 'CITIZEN', id: citizenId },
-          detail: { fromAppointmentId: oldAppt.id, toDate: dto.date, toSlot: dto.slot },
+          detail: {
+            fromAppointmentId: oldAppt.id,
+            toDate: dto.date,
+            toSlot: dto.slot,
+            sequence: seq,
+            displayNumber: newTicket.displayNumber,
+          },
         });
 
-        return appointmentView(created, counter, { rescheduledFromId: oldAppt.id });
+        return appointmentView(created, counter, {
+          rescheduledFromId: oldAppt.id,
+          ticket: ticketView(newTicket, counter),
+        });
       }, TX_OPTIONS),
     );
   }
@@ -846,16 +1140,33 @@ export class QueueService {
       },
     });
 
-    return counters.map(c => ({
-      ...c,
-      closures: c.closures.map(cl => ({ ...cl, date: formatDateOnly(cl.date) })),
-      readiness: evaluateReadiness(c, c.fields.length, c.schedules.length),
-    }));
+    return counters.map(c => {
+      const sampleWeekday = c.schedules.find(s => s.weekday >= 1 && s.weekday <= 5)?.weekday ?? c.schedules[0]?.weekday ?? 1;
+      const sampleWindows = c.schedules
+        .filter(s => s.weekday === sampleWeekday)
+        .map(s => ({ startTime: s.startTime, endTime: s.endTime }));
+      const slotCountPerDay = generateSlots(sampleWindows, c.slotMinutes ?? 30).length;
+      const capacitySummary = calculateCounterCapacitySummary({
+        slotCountPerDay,
+        slotMinutes: c.slotMinutes,
+        slotCapacity: c.slotCapacity,
+        appointmentQuota: c.appointmentQuota,
+        dailyCapacity: c.dailyCapacity,
+      });
+      return {
+        ...c,
+        closures: c.closures.map(cl => ({ ...cl, date: formatDateOnly(cl.date) })),
+        readiness: evaluateReadiness(c, c.fields.length, c.schedules.length),
+        capacitySummary,
+      };
+    });
   }
 
   async getCounterBoard(admin: { id: string; role: AdminRole }, counterId: string, query: BoardQueryDto, now: Date = new Date()) {
     await this.assertCounterAccess(admin, counterId);
-    const dateStr = query.date || vnToday(now);
+    const todayStr = vnToday(now);
+    const minutesNow = vnMinutesOfDay(now);
+    const dateStr = query.date || todayStr;
     const serviceDate = parseDateOnly(dateStr);
 
     const counter = await this.prisma.serviceCounter.findUnique({
@@ -868,26 +1179,159 @@ export class QueueService {
     });
     if (!counter) throw notFound('Không tìm thấy quầy phục vụ');
 
+    await this.ensureAppointmentTicketsForCounterDate(counterId, dateStr);
+
     const [tickets, appointments, totalUsed] = await Promise.all([
       this.prisma.queueTicket.findMany({
         where: { counterId, serviceDate },
         orderBy: { sequence: 'asc' },
-        include: { procedure: { select: { id: true, name: true } } },
+        include: {
+          procedure: { select: { id: true, name: true } },
+          appointment: {
+            select: {
+              id: true,
+              lookupCode: true,
+              slotStart: true,
+              slotSeat: true,
+              status: true,
+              contactName: true,
+              contactPhone: true,
+            },
+          },
+        },
       }),
       this.prisma.appointment.findMany({
         where: { counterId, serviceDate },
         orderBy: [{ slotStart: 'asc' }, { createdAt: 'asc' }],
         include: {
           procedure: { select: { id: true, name: true } },
-          tickets: { select: { id: true, displayNumber: true, status: true, sequence: true } },
+          tickets: {
+            select: {
+              id: true,
+              displayNumber: true,
+              status: true,
+              sequence: true,
+              lookupCode: true,
+              callCount: true,
+              calledAt: true,
+              servingAt: true,
+              finishedAt: true,
+            },
+          },
         },
       }),
       this.countDailyUsed(this.prisma, counterId, serviceDate),
     ]);
 
+    const slotMinutes = counter.slotMinutes ?? 30;
+    const weekday = weekdayOf(dateStr);
+    const dayWindows = counter.schedules
+      .filter(s => s.weekday === weekday)
+      .map(s => ({ startTime: s.startTime, endTime: s.endTime }));
+    const daySlots = generateSlots(dayWindows, slotMinutes);
+    const currentSlot =
+      dateStr === todayStr
+        ? daySlots.find(s => {
+            const st = timeToMinutes(s);
+            return minutesNow >= st && minutesNow < st + slotMinutes;
+          }) ?? null
+        : null;
+
     const isSuper = admin.role === AdminRole.SUPER_ADMIN;
+
+    // Sắp xếp lượt theo Khung giờ trước, sau đó theo Số thứ tự trong khung giờ (Mục 7.1 & 8.1)
+    const enrichedTickets = tickets
+      .map(t => {
+        const slot = t.appointment?.slotStart ?? null;
+        const isPastSlot =
+          dateStr < todayStr ||
+          (dateStr === todayStr && slot !== null && timeToMinutes(slot) + slotMinutes <= minutesNow);
+        const isCurrentSlot =
+          dateStr === todayStr &&
+          slot !== null &&
+          timeToMinutes(slot) <= minutesNow &&
+          minutesNow < timeToMinutes(slot) + slotMinutes;
+        const isFutureSlot =
+          dateStr > todayStr ||
+          (dateStr === todayStr && slot !== null && timeToMinutes(slot) > minutesNow);
+        const unified = resolveUnifiedTurnStatus({
+          appointmentStatus: t.appointment?.status ?? null,
+          ticketStatus: t.status,
+          isPastSlot,
+        });
+        return {
+          ...ticketView(t, counter),
+          unifiedStatus: unified.status,
+          unifiedStatusLabel: unified.label,
+          slot,
+          slotRange: slot ? formatSlotRange(slot, slotMinutes) : null,
+          isPastSlot,
+          isCurrentSlot,
+          isFutureSlot,
+          appointmentId: t.appointment?.id ?? null,
+          appointmentLookupCode: t.appointment?.lookupCode ?? null,
+          contactName: t.appointment?.contactName ?? null,
+          contactPhone: t.appointment ? (isSuper ? t.appointment.contactPhone : maskPhone(t.appointment.contactPhone)) : null,
+          procedureName: t.procedure?.name ?? null,
+          callCount: t.callCount,
+          servingAt: t.servingAt,
+          finishedAt: t.finishedAt,
+          version: t.version,
+        };
+      })
+      .sort((a, b) => {
+        const slotA = a.slot ?? '00:00';
+        const slotB = b.slot ?? '00:00';
+        return slotA.localeCompare(slotB) || a.sequence - b.sequence;
+      });
+
+    const enrichedAppointments = appointments
+      .map(a => {
+        const t = a.tickets[0] ?? null;
+        const isPastSlot =
+          dateStr < todayStr ||
+          (dateStr === todayStr && timeToMinutes(a.slotStart) + slotMinutes <= minutesNow);
+        const isCurrentSlot =
+          dateStr === todayStr &&
+          timeToMinutes(a.slotStart) <= minutesNow &&
+          minutesNow < timeToMinutes(a.slotStart) + slotMinutes;
+        const isFutureSlot =
+          dateStr > todayStr ||
+          (dateStr === todayStr && timeToMinutes(a.slotStart) > minutesNow);
+        const unified = resolveUnifiedTurnStatus({
+          appointmentStatus: a.status,
+          ticketStatus: t?.status ?? null,
+          isPastSlot,
+        });
+        return {
+          id: a.id,
+          lookupCode: a.lookupCode,
+          displayNumber: t?.displayNumber ?? null,
+          sequence: t?.sequence ?? null,
+          slot: a.slotStart,
+          slotRange: formatSlotRange(a.slotStart, slotMinutes),
+          slotSeat: a.slotSeat,
+          status: a.status,
+          unifiedStatus: unified.status,
+          unifiedStatusLabel: unified.label,
+          isPastSlot,
+          isCurrentSlot,
+          isFutureSlot,
+          contactName: a.contactName,
+          contactPhone: isSuper ? a.contactPhone : maskPhone(a.contactPhone),
+          procedureName: a.procedure?.name ?? null,
+          ticket: t,
+          version: a.version,
+          createdAt: a.createdAt,
+        };
+      })
+      .sort((a, b) => a.slot.localeCompare(b.slot) || (a.sequence ?? 999999) - (b.sequence ?? 999999));
+
     return {
       date: dateStr,
+      serverTime: now.toISOString(),
+      currentSlot,
+      currentSlotRange: currentSlot ? formatSlotRange(currentSlot, slotMinutes) : null,
       counter: {
         id: counter.id,
         code: counter.code,
@@ -899,6 +1343,8 @@ export class QueueService {
         ticketQuota: counter.ticketQuota,
         appointmentQuota: counter.appointmentQuota,
         walkInQuota: counter.walkInQuota,
+        slotMinutes,
+        slotCapacity: counter.slotCapacity ?? 1,
         fields: counter.fields.map(f => f.field),
         readiness: evaluateReadiness(counter, counter.fields.length, counter.schedules.length),
         closedToday: counter.closures.length > 0,
@@ -906,35 +1352,17 @@ export class QueueService {
       },
       summary: {
         totalUsed,
-        waiting: tickets.filter(t => t.status === 'WAITING').length,
-        calling: tickets.filter(t => t.status === 'CALLING').length,
-        serving: tickets.filter(t => t.status === 'SERVING').length,
-        completed: tickets.filter(t => t.status === 'COMPLETED').length,
-        noShow: tickets.filter(t => t.status === 'NO_SHOW').length,
+        waiting: enrichedTickets.filter(t => t.status === 'WAITING').length,
+        calling: enrichedTickets.filter(t => t.status === 'CALLING').length,
+        serving: enrichedTickets.filter(t => t.status === 'SERVING').length,
+        completed: enrichedTickets.filter(t => t.status === 'COMPLETED').length,
+        noShow: enrichedTickets.filter(t => t.status === 'NO_SHOW').length,
+        unservedPastSlots: enrichedTickets.filter(t => t.unifiedStatus === 'UNSERVED_PAST_SLOT').length,
         appointmentsConfirmed: appointments.filter(a => a.status === 'CONFIRMED').length,
         appointmentsCheckedIn: appointments.filter(a => a.status === 'CHECKED_IN').length,
       },
-      tickets: tickets.map(t => ({
-        ...ticketView(t, counter),
-        procedureName: t.procedure?.name ?? null,
-        callCount: t.callCount,
-        servingAt: t.servingAt,
-        finishedAt: t.finishedAt,
-        version: t.version,
-      })),
-      appointments: appointments.map(a => ({
-        id: a.id,
-        lookupCode: a.lookupCode,
-        slot: a.slotStart,
-        slotSeat: a.slotSeat,
-        status: a.status,
-        contactName: a.contactName,
-        contactPhone: isSuper ? a.contactPhone : maskPhone(a.contactPhone),
-        procedureName: a.procedure?.name ?? null,
-        ticket: a.tickets[0] ?? null,
-        version: a.version,
-        createdAt: a.createdAt,
-      })),
+      tickets: enrichedTickets,
+      appointments: enrichedAppointments,
     };
   }
 
@@ -946,23 +1374,46 @@ export class QueueService {
     if (code.startsWith('T')) {
       const t = await this.prisma.queueTicket.findUnique({
         where: { lookupCode: code },
-        include: { counter: true, procedure: { select: { id: true, name: true } } },
+        include: {
+          counter: true,
+          procedure: { select: { id: true, name: true } },
+          appointment: true,
+        },
       });
       if (!t) throw notFound('Không tìm thấy phiếu số');
       await this.assertCounterAccess(admin, t.counterId);
-      return { kind: 'TICKET', ticket: { ...ticketView(t, t.counter), procedureName: t.procedure?.name ?? null, callCount: t.callCount } };
+      return {
+        kind: 'TICKET',
+        ticket: {
+          ...ticketView(t, t.counter),
+          procedureName: t.procedure?.name ?? null,
+          callCount: t.callCount,
+          slot: t.appointment?.slotStart ?? null,
+          slotRange: t.appointment ? formatSlotRange(t.appointment.slotStart, t.counter.slotMinutes) : null,
+          appointmentLookupCode: t.appointment?.lookupCode ?? null,
+          contactName: t.appointment?.contactName ?? null,
+          contactPhone: t.appointment ? (isSuper ? t.appointment.contactPhone : maskPhone(t.appointment.contactPhone)) : null,
+        },
+      };
     }
 
-    const a = await this.prisma.appointment.findUnique({
+    let a = await this.prisma.appointment.findUnique({
       where: { lookupCode: code },
       include: { counter: true, procedure: { select: { id: true, name: true } }, tickets: true },
     });
     if (!a) throw notFound('Không tìm thấy lịch hẹn');
     await this.assertCounterAccess(admin, a.counterId);
+    if (a.status === 'CONFIRMED' && a.tickets.length === 0) {
+      await this.ensureAppointmentTicketsForCounterDate(a.counterId, formatDateOnly(a.serviceDate));
+      a = await this.prisma.appointment.findUniqueOrThrow({
+        where: { lookupCode: code },
+        include: { counter: true, procedure: { select: { id: true, name: true } }, tickets: true },
+      });
+    }
     return {
       kind: 'APPOINTMENT',
       appointment: {
-        ...appointmentView(a, a.counter),
+        ...appointmentView(a, a.counter, { ticket: a.tickets[0] ?? null }),
         contactPhone: isSuper ? a.contactPhone : maskPhone(a.contactPhone),
         procedureName: a.procedure?.name ?? null,
         ticket: a.tickets[0] ?? null,
@@ -1046,17 +1497,68 @@ export class QueueService {
     await this.assertCounterAccess(admin, counterId);
     const todayStr = vnToday(now);
     const todayDate = parseDateOnly(todayStr);
+    const minutesNow = vnMinutesOfDay(now);
     const counter = await this.prisma.serviceCounter.findUnique({ where: { id: counterId } });
     if (!counter) throw notFound('Không tìm thấy quầy');
 
+    await this.ensureAppointmentTicketsForCounterDate(counterId, todayStr);
+
     return this.prisma.$transaction(async tx => {
       await lockCounterDay(tx, counterId, todayStr);
-      const nextWaiting = await tx.queueTicket.findFirst({
-        where: { counterId, serviceDate: todayDate, status: 'WAITING' },
-        orderBy: { sequence: 'asc' },
-      });
-      if (!nextWaiting) throw conflict('QUEUE_EMPTY', 'Hiện không còn số nào đang chờ trong hàng');
 
+      // Không cho phép cùng 1 vị trí tiếp nhận đang gọi 2 số cùng lúc (Mục 7.2 & 10.2)
+      const activeCallingOrServing = await tx.queueTicket.findMany({
+        where: { counterId, serviceDate: todayDate, status: { in: ['CALLING', 'SERVING'] } },
+        select: { id: true, displayNumber: true, status: true, handledByAdminId: true },
+      });
+      const maxPositions = Math.max(1, counter.slotCapacity ?? 1);
+      const sameAdminCalling = activeCallingOrServing.find(
+        t => t.handledByAdminId === admin.id && t.status === 'CALLING',
+      );
+      if (sameAdminCalling || activeCallingOrServing.length >= maxPositions) {
+        const busyTicket = sameAdminCalling ?? activeCallingOrServing[0];
+        throw conflict(
+          'POSITION_BUSY',
+          `Quầy đang xử lý số ${busyTicket.displayNumber} (${busyTicket.status === 'CALLING' ? 'Đang gọi' : 'Đang tiếp nhận'}). Vui lòng Tiếp nhận, Hoàn tất hoặc đánh dấu Vắng mặt trước khi gọi số tiếp theo.`,
+        );
+      }
+
+      const waitingTickets = await tx.queueTicket.findMany({
+        where: { counterId, serviceDate: todayDate, status: 'WAITING' },
+        include: { appointment: true },
+      });
+      if (!waitingTickets.length) {
+        throw conflict('QUEUE_EMPTY', 'Hiện không còn số nào đang chờ trong hàng');
+      }
+
+      // Lọc các lượt thuộc khung giờ hợp lệ (khung giờ hiện tại hoặc khung giờ trước chưa được gọi),
+      // không tự động gọi sớm lượt của khung giờ tương lai (Mục 7.2 & Mục 8.1)
+      const eligible = waitingTickets.filter(t => {
+        if (!t.appointment) return true;
+        return timeToMinutes(t.appointment.slotStart) <= minutesNow;
+      });
+
+      if (!eligible.length) {
+        const sortedFuture = [...waitingTickets].sort(
+          (a, b) =>
+            (a.appointment?.slotStart ?? '99:99').localeCompare(b.appointment?.slotStart ?? '99:99') ||
+            a.sequence - b.sequence,
+        );
+        const nextSlot = sortedFuture[0]?.appointment?.slotStart ?? '';
+        throw conflict(
+          'FUTURE_SLOT_NOT_STARTED',
+          `Chưa đến khung giờ hẹn tiếp theo (${nextSlot}). Hệ thống không tự động gọi sớm lượt của khung giờ tương lai.`,
+        );
+      }
+
+      // Thứ tự gọi ưu tiên theo khung giờ (slotStart) trước, sau đó theo thứ tự số (sequence) trong khung giờ
+      eligible.sort((a, b) => {
+        const slotA = a.appointment?.slotStart ?? '00:00';
+        const slotB = b.appointment?.slotStart ?? '00:00';
+        return slotA.localeCompare(slotB) || a.sequence - b.sequence;
+      });
+
+      const nextWaiting = eligible[0];
       const updated = await transitionTicket(
         tx,
         nextWaiting,
@@ -1065,7 +1567,11 @@ export class QueueService {
         'TICKET_CALLED',
         { callCount: { increment: 1 }, calledAt: now, handledByAdminId: admin.id },
       );
-      return ticketView(updated, counter);
+      return ticketView(updated, counter, {
+        slot: nextWaiting.appointment?.slotStart ?? null,
+        slotRange: nextWaiting.appointment ? formatSlotRange(nextWaiting.appointment.slotStart, counter.slotMinutes) : null,
+        appointmentLookupCode: nextWaiting.appointment?.lookupCode ?? null,
+      });
     }, TX_OPTIONS);
   }
 
@@ -1207,22 +1713,33 @@ export class QueueService {
   }
 
   async checkInAppointment(admin: { id: string; role: AdminRole }, appointmentId: string) {
-    const appt = await this.prisma.appointment.findUnique({ where: { id: appointmentId }, include: { counter: true } });
+    const appt = await this.prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      include: { counter: true, tickets: true },
+    });
     if (!appt) throw notFound('Không tìm thấy lịch hẹn');
     await this.assertCounterAccess(admin, appt.counterId);
+
+    // Tương thích ngược: nếu lịch hẹn đã có sẵn số gọi (luồng gộp mới), trả về luôn phiếu đó, không cấp số thứ hai
+    if (appt.tickets.length > 0) {
+      return ticketView(appt.tickets[0], appt.counter, {
+        appointmentId: appt.id,
+        idempotentReplay: true,
+      });
+    }
+
     if (appt.status !== 'CONFIRMED') {
-      throw conflict('INVALID_STATE', 'Lịch hẹn không ở trạng thái chờ check-in');
+      throw conflict('INVALID_STATE', 'Lịch hẹn không ở trạng thái chờ cấp số');
     }
 
     const dateStr = formatDateOnly(appt.serviceDate);
     return withRetry(() =>
       this.prisma.$transaction(async tx => {
         const dayLock = await lockCounterDay(tx, appt.counterId, dateStr);
-        const res = await tx.appointment.updateMany({
-          where: { id: appt.id, status: 'CONFIRMED', version: appt.version },
-          data: { status: 'CHECKED_IN', version: { increment: 1 } },
-        });
-        if (res.count !== 1) throw conflict('CONFLICT', 'Lịch hẹn vừa thay đổi. Vui lòng tải lại.');
+        const existingTicket = await tx.queueTicket.findFirst({ where: { appointmentId: appt.id } });
+        if (existingTicket) {
+          return ticketView(existingTicket, appt.counter, { appointmentId: appt.id, idempotentReplay: true });
+        }
 
         const seq = await nextSequence(tx, dayLock.id, dayLock.lastSequence);
         const ticket = await tx.queueTicket.create({
@@ -1257,19 +1774,32 @@ export class QueueService {
   }
 
   async markNoShowAppointment(admin: { id: string; role: AdminRole }, appointmentId: string, reason?: string) {
-    const appt = await this.prisma.appointment.findUnique({ where: { id: appointmentId }, include: { counter: true } });
+    const appt = await this.prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      include: { counter: true, tickets: true },
+    });
     if (!appt) throw notFound('Không tìm thấy lịch hẹn');
     await this.assertCounterAccess(admin, appt.counterId);
-    if (appt.status !== 'CONFIRMED') {
-      throw conflict('INVALID_STATE', 'Chỉ đánh dấu vắng mặt cho lịch hẹn chưa check-in');
+    if (appt.status !== 'CONFIRMED' && appt.status !== 'CHECKED_IN') {
+      throw conflict('INVALID_STATE', 'Lịch hẹn không ở trạng thái có thể đánh dấu vắng mặt');
     }
 
     return this.prisma.$transaction(async tx => {
       const res = await tx.appointment.updateMany({
-        where: { id: appt.id, status: 'CONFIRMED', version: appt.version },
+        where: { id: appt.id, status: appt.status, version: appt.version },
         data: { status: 'NO_SHOW', cancelReason: reason?.trim() || null, version: { increment: 1 } },
       });
       if (res.count !== 1) throw conflict('CONFLICT', 'Lịch hẹn vừa thay đổi.');
+
+      for (const t of appt.tickets) {
+        if (t.status === 'WAITING' || t.status === 'CALLING') {
+          await tx.queueTicket.updateMany({
+            where: { id: t.id, status: t.status, version: t.version },
+            data: { status: 'NO_SHOW', finishedAt: new Date(), handledByAdminId: admin.id, version: { increment: 1 } },
+          });
+        }
+      }
+
       await recordEvent(tx, {
         counterId: appt.counterId,
         appointmentId: appt.id,
@@ -1283,11 +1813,17 @@ export class QueueService {
   }
 
   async cancelAdminAppointment(admin: { id: string; role: AdminRole }, appointmentId: string, reason?: string) {
-    const appt = await this.prisma.appointment.findUnique({ where: { id: appointmentId }, include: { counter: true } });
+    const appt = await this.prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      include: { counter: true, tickets: true },
+    });
     if (!appt) throw notFound('Không tìm thấy lịch hẹn');
     await this.assertCounterAccess(admin, appt.counterId);
     if (appt.status !== 'CONFIRMED') {
-      throw conflict('INVALID_STATE', 'Chỉ có thể hủy lịch hẹn khi chưa check-in');
+      throw conflict('INVALID_STATE', 'Chỉ có thể hủy lịch hẹn khi chưa được tiếp nhận');
+    }
+    if (appt.tickets.some(t => ['CALLING', 'SERVING', 'COMPLETED'].includes(t.status))) {
+      throw conflict('INVALID_STATE', 'Lịch hẹn đang được gọi hoặc đã tiếp nhận, không thể hủy');
     }
 
     return this.prisma.$transaction(async tx => {
@@ -1296,6 +1832,21 @@ export class QueueService {
         data: { status: 'CANCELLED', slotSeat: null, cancelReason: reason?.trim() || null, version: { increment: 1 } },
       });
       if (res.count !== 1) throw conflict('CONFLICT', 'Lịch hẹn vừa thay đổi.');
+
+      for (const linkedTicket of appt.tickets) {
+        if (linkedTicket.status === 'WAITING') {
+          await transitionTicket(
+            tx,
+            linkedTicket,
+            'CANCELLED',
+            { type: 'ADMIN', id: admin.id },
+            'TICKET_CANCELLED_WITH_APPOINTMENT',
+            { finishedAt: new Date(), handledByAdminId: admin.id },
+            reason ? { reason } : undefined,
+          );
+        }
+      }
+
       await recordEvent(tx, {
         counterId: appt.counterId,
         appointmentId: appt.id,
@@ -1324,7 +1875,7 @@ export class QueueService {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // CẤU HÌNH QUẦY (SUPER_ADMIN — CÓ AUDIT LOG)
+  // CẤU HÌNH QUẦY & LỊCH PHỤC VỤ (SUPER_ADMIN — CÓ AUDIT LOG)
   // ─────────────────────────────────────────────────────────────
 
   async createCounter(adminId: string, dto: CreateCounterDto) {
@@ -1338,7 +1889,7 @@ export class QueueService {
     );
   }
 
-  async updateCounter(adminId: string, counterId: string, dto: UpdateCounterDto) {
+  async updateCounter(adminId: string, counterId: string, dto: UpdateCounterDto, now: Date = new Date()) {
     const current = await this.prisma.serviceCounter.findUnique({
       where: { id: counterId },
       include: { fields: true, schedules: true },
@@ -1373,6 +1924,46 @@ export class QueueService {
     }
     if ((merged.ticketEnabled || merged.appointmentEnabled) && current.schedules.length === 0) {
       throw badRequest('MISSING_SCHEDULES', 'Cần cấu hình giờ hoạt động trước khi bật lấy số/đặt lịch');
+    }
+
+    // Kiểm tra bảo vệ lịch đã đặt: không cho giảm hạn mức/số chỗ xuống thấp hơn số lịch đã đặt (Mục 9.3)
+    const todayDate = parseDateOnly(vnToday(now));
+    if (merged.appointmentQuota !== null) {
+      const groupedByDate = await this.prisma.appointment.groupBy({
+        by: ['serviceDate'],
+        where: {
+          counterId,
+          serviceDate: { gte: todayDate },
+          status: { in: HELD_APPOINTMENT_STATUSES },
+        },
+        _count: { _all: true },
+      });
+      const overDay = groupedByDate.find(row => row._count._all > merged.appointmentQuota!);
+      if (overDay) {
+        throw conflict(
+          'QUOTA_BELOW_BOOKED',
+          `Ngày ${formatDateOnly(overDay.serviceDate)} đã có ${overDay._count._all} lịch hẹn đã cấp số. Không thể giảm hạn mức lịch hẹn xuống ${merged.appointmentQuota}.`,
+        );
+      }
+    }
+
+    if (merged.slotCapacity !== null) {
+      const groupedBySlot = await this.prisma.appointment.groupBy({
+        by: ['serviceDate', 'slotStart'],
+        where: {
+          counterId,
+          serviceDate: { gte: todayDate },
+          slotSeat: { not: null },
+        },
+        _count: { _all: true },
+      });
+      const overSlot = groupedBySlot.find(row => row._count._all > merged.slotCapacity!);
+      if (overSlot) {
+        throw conflict(
+          'CAPACITY_BELOW_BOOKED',
+          `Khung giờ ${overSlot.slotStart} ngày ${formatDateOnly(overSlot.serviceDate)} đã có ${overSlot._count._all} lịch hẹn. Không thể giảm số vị trí tiếp nhận xuống ${merged.slotCapacity}.`,
+        );
+      }
     }
 
     if (dto.fieldIds !== undefined) {
@@ -1435,13 +2026,29 @@ export class QueueService {
   async addClosure(adminId: string, counterId: string, dto: CreateClosureDto) {
     if (!isValidDateString(dto.date)) throw badRequest('INVALID_DATE', 'Ngày nghỉ không hợp lệ');
     const dateObj = parseDateOnly(dto.date);
-    return auditedWrite(this.prisma, adminId, 'COUNTER_CLOSURE_ADD', `counter:${counterId}`, tx =>
+    const affectedAppointmentsCount = await this.prisma.appointment.count({
+      where: {
+        counterId,
+        serviceDate: dateObj,
+        status: { in: ['CONFIRMED', 'CHECKED_IN'] },
+      },
+    });
+    const saved = await auditedWrite(this.prisma, adminId, 'COUNTER_CLOSURE_ADD', `counter:${counterId}`, tx =>
       tx.counterClosure.upsert({
         where: { counterId_date: { counterId, date: dateObj } },
         update: { note: dto.note?.trim() || null },
         create: { counterId, date: dateObj, note: dto.note?.trim() || null },
       }),
     );
+    return {
+      ...saved,
+      date: dto.date,
+      affectedAppointmentsCount,
+      warning:
+        affectedAppointmentsCount > 0
+          ? `Lưu ý: Ngày ${dto.date} đã có ${affectedAppointmentsCount} lịch hẹn đã được cấp số. Hệ thống đã khóa nhận lịch mới nhưng KHÔNG tự động hủy các lịch đã đặt.`
+          : null,
+    };
   }
 
   async removeClosure(adminId: string, counterId: string, closureId: string) {
@@ -1474,6 +2081,107 @@ export class QueueService {
       where: { isActive: true, role: { in: [AdminRole.SUPER_ADMIN, AdminRole.COUNTER_STAFF] } },
       select: { id: true, username: true, fullName: true, role: true },
       orderBy: { username: 'asc' },
+    });
+  }
+
+  /**
+   * Khởi tạo / cập nhật nhanh 4 quầy chuẩn theo 4 nhóm lĩnh vực đã xác nhận của Trung tâm (Mục 3)
+   * với khung giờ 30 phút/lượt và thông số vận hành gắn nhãn [CẤU HÌNH THỬ].
+   */
+  async setupStandardCounters(adminId: string) {
+    const allFields = await this.prisma.procedureField.findMany({
+      include: { counterMapping: true },
+    });
+
+    const defaultWindows = [1, 2, 3, 4, 5].flatMap(weekday => [
+      { weekday, startTime: '07:30', endTime: '11:30' },
+      { weekday, startTime: '13:30', endTime: '17:00' },
+    ]);
+
+    return auditedWrite(this.prisma, adminId, 'COUNTER_STANDARD_SETUP', 'counter:Q1-Q4', async tx => {
+      const results = [];
+      for (const preset of CONFIRMED_FOUR_COUNTERS_PRESET) {
+        let counter = await tx.serviceCounter.findUnique({
+          where: { code: preset.code },
+          include: { fields: true, schedules: true },
+        });
+
+        // Tìm các lĩnh vực khớp từ khóa chưa gán cho quầy khác
+        const matchedFieldIds = allFields
+          .filter(f => {
+            if (f.counterMapping && (!counter || f.counterMapping.counterId !== counter.id)) return false;
+            const hay = `${f.slug} ${f.label}`.toLowerCase();
+            return preset.fieldKeywords.some(kw => hay.includes(kw.trim().toLowerCase()));
+          })
+          .map(f => f.id);
+
+        if (!counter) {
+          counter = await tx.serviceCounter.create({
+            data: {
+              code: preset.code,
+              name: preset.name,
+              description: preset.description,
+              slotMinutes: 30,
+              slotCapacity: 1,
+              dailyCapacity: 15,
+              appointmentQuota: 10,
+              ticketQuota: 0,
+              walkInQuota: 5,
+              bookingMinLeadMinutes: 30,
+              bookingMaxDaysAhead: 7,
+              maxActiveTicketsPerCitizen: 1,
+              maxActiveAppointmentsPerCitizen: 2,
+              isActive: matchedFieldIds.length > 0,
+              appointmentEnabled: matchedFieldIds.length > 0,
+              ticketEnabled: false,
+            },
+            include: { fields: true, schedules: true },
+          });
+        } else {
+          const totalFieldsAfter = Math.max(counter.fields.length, matchedFieldIds.length);
+          counter = await tx.serviceCounter.update({
+            where: { id: counter.id },
+            data: {
+              name: counter.name || preset.name,
+              description: counter.description || preset.description,
+              slotMinutes: counter.slotMinutes ?? 30,
+              slotCapacity: counter.slotCapacity ?? 1,
+              dailyCapacity: counter.dailyCapacity ?? 15,
+              appointmentQuota: counter.appointmentQuota ?? 10,
+              ticketQuota: 0,
+              walkInQuota: counter.walkInQuota ?? 5,
+              bookingMinLeadMinutes: counter.bookingMinLeadMinutes ?? 30,
+              bookingMaxDaysAhead: counter.bookingMaxDaysAhead ?? 7,
+              maxActiveTicketsPerCitizen: counter.maxActiveTicketsPerCitizen ?? 1,
+              maxActiveAppointmentsPerCitizen: counter.maxActiveAppointmentsPerCitizen ?? 2,
+              isActive: totalFieldsAfter > 0 ? true : counter.isActive,
+              appointmentEnabled: totalFieldsAfter > 0 ? true : counter.appointmentEnabled,
+              ticketEnabled: false,
+            },
+            include: { fields: true, schedules: true },
+          });
+        }
+
+        if (counter.schedules.length === 0) {
+          await tx.counterSchedule.createMany({
+            data: defaultWindows.map(w => ({ counterId: counter!.id, ...w })),
+          });
+        }
+
+        for (const fid of matchedFieldIds) {
+          const exists = await tx.counterField.findUnique({ where: { fieldId: fid } });
+          if (!exists) {
+            await tx.counterField.create({ data: { counterId: counter.id, fieldId: fid } });
+          }
+        }
+
+        const refreshed = await tx.serviceCounter.findUniqueOrThrow({
+          where: { id: counter.id },
+          include: { fields: { include: { field: true } }, schedules: true },
+        });
+        results.push(refreshed);
+      }
+      return results;
     });
   }
 }

@@ -82,12 +82,116 @@ export const TICKET_TRANSITIONS: Record<TicketStatus, TicketStatus[]> = {
 export const ACTIVE_TICKET_STATUSES: TicketStatus[] = ['WAITING', 'CALLING', 'SERVING'];
 
 export const APPOINTMENT_TRANSITIONS: Record<AppointmentStatus, AppointmentStatus[]> = {
-  CONFIRMED: ['CHECKED_IN', 'CANCELLED', 'RESCHEDULED', 'NO_SHOW'],
+  CONFIRMED: ['CHECKED_IN', 'COMPLETED', 'CANCELLED', 'RESCHEDULED', 'NO_SHOW'],
   CHECKED_IN: ['COMPLETED', 'CANCELLED', 'NO_SHOW'],
   COMPLETED: [], CANCELLED: [], RESCHEDULED: [], NO_SHOW: [],
 };
 /** Lịch còn giữ chỗ/hạn mức (hủy và đổi lịch giải phóng; vắng mặt không giải phóng). */
 export const HELD_APPOINTMENT_STATUSES: AppointmentStatus[] = ['CONFIRMED', 'CHECKED_IN', 'COMPLETED', 'NO_SHOW'];
+
+export type UnifiedTurnStatus =
+  | 'BOOKED'
+  | 'CALLING'
+  | 'SERVING'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'NO_SHOW'
+  | 'UNSERVED_PAST_SLOT';
+
+export const UNIFIED_STATUS_LABELS: Record<UnifiedTurnStatus, string> = {
+  BOOKED: 'Đã đặt lịch',
+  CALLING: 'Đang gọi',
+  SERVING: 'Đang tiếp nhận',
+  COMPLETED: 'Hoàn tất',
+  CANCELLED: 'Đã hủy',
+  NO_SHOW: 'Vắng mặt',
+  UNSERVED_PAST_SLOT: 'Chưa được phục vụ',
+};
+
+export function resolveUnifiedTurnStatus(params: {
+  appointmentStatus?: AppointmentStatus | null;
+  ticketStatus?: TicketStatus | null;
+  isPastSlot?: boolean;
+}): { status: UnifiedTurnStatus; label: string } {
+  const { appointmentStatus, ticketStatus, isPastSlot } = params;
+  let status: UnifiedTurnStatus = 'BOOKED';
+
+  if (ticketStatus === 'CALLING') {
+    status = 'CALLING';
+  } else if (ticketStatus === 'SERVING') {
+    status = 'SERVING';
+  } else if (ticketStatus === 'COMPLETED' || appointmentStatus === 'COMPLETED') {
+    status = 'COMPLETED';
+  } else if (
+    ticketStatus === 'CANCELLED' ||
+    appointmentStatus === 'CANCELLED' ||
+    appointmentStatus === 'RESCHEDULED'
+  ) {
+    status = 'CANCELLED';
+  } else if (ticketStatus === 'NO_SHOW' || appointmentStatus === 'NO_SHOW') {
+    status = 'NO_SHOW';
+  } else if (isPastSlot) {
+    status = 'UNSERVED_PAST_SLOT';
+  } else {
+    status = 'BOOKED';
+  }
+
+  return { status, label: UNIFIED_STATUS_LABELS[status] };
+}
+
+/** 4 quầy phục vụ đã xác nhận theo lĩnh vực tại Trung tâm PVHCC xã Nghĩa Thành (Mục 3). */
+export const CONFIRMED_FOUR_COUNTERS_PRESET = [
+  {
+    code: 'Q1',
+    name: 'Quầy 1 — Tư pháp – hộ tịch',
+    description: '[CẤU HÌNH THỬ] Tiếp nhận lĩnh vực Tư pháp – hộ tịch (30 phút/lượt)',
+    fieldKeywords: ['tu-phap', 'ho-tich', 'tư pháp', 'hộ tịch', 'chứng thực'],
+  },
+  {
+    code: 'Q2',
+    name: 'Quầy 2 — Kinh doanh – môi trường',
+    description: '[CẤU HÌNH THỬ] Giấy phép kinh doanh, đăng ký hộ kinh doanh – môi trường (30 phút/lượt)',
+    fieldKeywords: ['kinh-doanh', 'moi-truong', 'kinh doanh', 'môi trường', 'hộ kinh doanh', 'đăng ký kinh doanh'],
+  },
+  {
+    code: 'Q3',
+    name: 'Quầy 3 — Đất đai – quy hoạch',
+    description: '[CẤU HÌNH THỬ] Tiếp nhận lĩnh vực Đất đai – quy hoạch – xây dựng (30 phút/lượt)',
+    fieldKeywords: ['dat-dai', 'quy-hoach', 'đất đai', 'quy hoạch', 'xây dựng'],
+  },
+  {
+    code: 'Q4',
+    name: 'Quầy 4 — Văn hóa – giáo dục – y tế – LĐTBXH',
+    description: '[CẤU HÌNH THỬ] Văn hóa – giáo dục – y tế – thương binh và xã hội (30 phút/lượt)',
+    fieldKeywords: ['van-hoa', 'giao-duc', 'y-te', ' lao-dong', 'xa-hoi', 'văn hóa', 'giáo dục', 'y tế', 'thương binh', 'xã hội', 'bảo trợ'],
+  },
+] as const;
+
+export function calculateCounterCapacitySummary(params: {
+  slotCountPerDay: number;
+  slotMinutes: number | null;
+  slotCapacity: number | null;
+  appointmentQuota: number | null;
+  dailyCapacity: number | null;
+}) {
+  const slotMinutes = params.slotMinutes ?? 30;
+  const positions = params.slotCapacity ?? 1;
+  const theoreticalTurnsPerDay = params.slotCountPerDay * positions;
+  const effectiveDailyMax =
+    params.dailyCapacity !== null ? Math.min(theoreticalTurnsPerDay, params.dailyCapacity) : theoreticalTurnsPerDay;
+  const maxOnlineBookings =
+    params.appointmentQuota !== null ? Math.min(params.appointmentQuota, effectiveDailyMax) : 0;
+  const remainingForWalkIn = Math.max(0, effectiveDailyMax - maxOnlineBookings);
+  return {
+    slotMinutes,
+    positions,
+    slotCountPerDay: params.slotCountPerDay,
+    theoreticalTurnsPerDay,
+    effectiveDailyMax,
+    maxOnlineBookings,
+    remainingForWalkIn,
+  };
+}
 
 export function canTransitionTicket(from: TicketStatus, to: TicketStatus): boolean {
   return TICKET_TRANSITIONS[from].includes(to);

@@ -51,6 +51,9 @@ model Admin {
   // Quan hệ
   authoredPosts   Post[]          @relation("PostAuthor")
   reviewedPosts   Post[]          @relation("PostReviewer")
+  authoredNotices Notice[]        @relation("NoticeAuthor")
+  reviewedNotices Notice[]        @relation("NoticeReviewer")
+  verifiedNotices Notice[]        @relation("NoticeVerifier")
   handledFeedback Feedback[]      @relation("FeedbackHandler")
   feedbackReplies FeedbackReply[]
   auditLogs       AuditLog[]
@@ -110,8 +113,9 @@ model Procedure {
   sortOrder    Int            @default(0)
   queueTickets QueueTicket[]
   appointments Appointment[]
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  noticeLinks  ProcedureNoticeLink[]
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
 }
 
 // ============================================================
@@ -177,20 +181,134 @@ model Faq {
 }
 
 // ============================================================
-// NIÊM YẾT CÔNG KHAI
+// NIÊM YẾT CÔNG KHAI (V2 — Thư viện văn bản & Liên kết TTHC)
 // ============================================================
+
+/// Phân nhóm niêm yết công khai
+enum NoticeType {
+  PROCEDURE_ANNOUNCEMENT // Công bố TTHC hoặc danh mục TTHC
+  INTERNAL_PROCESS // Quy trình nội bộ, quy trình điện tử giải quyết TTHC
+  INTERNAL_PROCEDURE // TTHC nội bộ trong hệ thống hành chính nhà nước
+}
+
+/// Trạng thái xuất bản niêm yết (trục 1: nháp -> chờ duyệt -> đã đăng -> thu hồi)
+enum NoticePublicationStatus {
+  DRAFT // Nháp
+  PENDING // Chờ duyệt
+  PUBLISHED // Đã đăng công khai
+  REVOKED // Đã thu hồi / ẩn công khai
+}
+
+/// Trạng thái hiệu lực pháp lý của quyết định dẫn chiếu (trục 2: tách biệt với trạng thái xuất bản)
+enum NoticeLegalStatus {
+  UNVERIFIED // Chưa xác minh hiệu lực (mặc định khi nhập từ nguồn)
+  VALID // Còn hiệu lực
+  PARTIALLY_EXPIRED // Hết hiệu lực một phần / bãi bỏ một phần
+  EXPIRED // Hết hiệu lực toàn bộ
+}
+
+/// Cờ chất lượng của tệp nguồn kiểm kê
+enum SourceQualityStatus {
+  UNCHECKED // Chưa kiểm tra
+  OK // Khớp thông tin trích xuất cơ bản
+  DUPLICATE_CANDIDATE // Nghi trùng văn bản (vd: nguồn 42 và 43)
+  CONFLICT // Xung đột thông tin bên trong tệp (vd: nguồn 22: 4811 vs 5116)
+  NEEDS_VERIFICATION // Cần đối chiếu ngày/bản gốc đặc biệt (vd: nguồn 1, 31)
+}
+
+/// Tác động của quyết định niêm yết lên thủ tục hành chính
+enum ProcedureImpactType {
+  NEW // Mới ban hành
+  AMENDED // Sửa đổi, bổ sung
+  REPLACED // Thay thế
+  REPEALED // Bãi bỏ
+  INTERNAL_PROCESS // Ban hành/tái cấu trúc quy trình nội bộ, điện tử
+}
+
+/// Nguồn tài liệu gốc (53 link Google Drive hoặc tệp PDF tải lên)
+model SourceDocument {
+  id                  String              @id @default(uuid())
+  sourceIndex         Int?                @unique // Thứ tự kiểm kê 1..53
+  driveFileId         String?             @unique @db.VarChar(120)
+  originalUrl         String              @db.Text
+  previewUrl          String?             @db.Text
+  headerCode          String?             @db.VarChar(120)
+  title               String              @db.Text
+  innerDecisionTitle  String?             @db.Text
+  article1Excerpt     String?             @db.Text
+  citedDateText       String?             @db.VarChar(160)
+  extractedTextHash   String?             @db.VarChar(128)
+  connectorReadable   Boolean             @default(true)
+  publicAccessChecked Boolean             @default(false)
+  publicAccessOk      Boolean?
+  qualityStatus       SourceQualityStatus @default(UNCHECKED)
+  qualityNote         String?             @db.Text
+  needsDateVerification Boolean           @default(false)
+  duplicateOfIndex    Int?
+  isPrimaryInGroup    Boolean             @default(true)
+  noticeId            String?
+  notice              Notice?             @relation(fields: [noticeId], references: [id], onDelete: SetNull)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  @@index([noticeId])
+  @@index([qualityStatus])
+}
 
 /// Niêm yết công khai
 model Notice {
   id          String           @id @default(uuid())
   title       String           @db.Text
   description String           @db.Text
-  startDate   DateTime
-  endDate     DateTime
+  summary     String?          @db.Text // Tóm tắt ngắn Điều 1 / phạm vi niêm yết
+  startDate   DateTime?
+  endDate     DateTime?
   isActive    Boolean          @default(true)
-  documents   NoticeDocument[]
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+
+  // Metadata thông báo của Trung tâm & Quyết định dẫn chiếu
+  noticeNumber        String?                 @db.VarChar(120) // Số thông báo của Trung tâm (nếu có)
+  noticeDate          DateTime?               // Ngày thông báo của Trung tâm
+  publishingUnit      String?                 @db.Text         // Đơn vị niêm yết (mặc định Trung tâm PVHCC xã Nghĩa Thành)
+  noticeType          NoticeType              @default(PROCEDURE_ANNOUNCEMENT)
+  publicationStatus   NoticePublicationStatus @default(PUBLISHED)
+  legalDocumentNumber String?                 @db.VarChar(160) // Số quyết định (vd: 5119/QĐ-UBND)
+  legalDocumentDate   DateTime?               // Ngày ban hành quyết định
+  citedDateText       String?                 @db.VarChar(160) // Chuỗi ngày trích từ thông báo
+  issuingAuthority    String?                 @db.Text         // Cơ quan ban hành (vd: Chủ tịch UBND TP.HCM)
+  managingAuthority   String?                 @db.Text         // Cơ quan quản lý lĩnh vực (vd: Sở Xây dựng)
+  legalStatus         NoticeLegalStatus       @default(UNVERIFIED)
+  fieldTags           Json                    @default("[]")   // Danh sách lĩnh vực (mảng chuỗi)
+  sourcePortalUrl     String?                 @db.Text         // Cổng DVC hoặc Cổng TTĐT dẫn chiếu
+
+  // Xác minh & kiểm soát chất lượng trước khi công khai
+  needsVerification   Boolean   @default(false)
+  verificationNote    String?   @db.Text
+  verifiedById        String?
+  verifiedBy          Admin?    @relation("NoticeVerifier", fields: [verifiedById], references: [id])
+  verifiedAt          DateTime?
+
+  // Quy trình biên tập / duyệt & bản sửa (revision) cho niêm yết đã đăng
+  authorId         String?
+  author           Admin?                   @relation("NoticeAuthor", fields: [authorId], references: [id])
+  reviewerId       String?
+  reviewer         Admin?                   @relation("NoticeReviewer", fields: [reviewerId], references: [id])
+  rejectionNote    String?                  @db.Text
+  publishedAt      DateTime?
+  revokedAt        DateTime?
+  revokedReason    String?                  @db.Text
+  revision         Json?
+  revisionStatus   NoticePublicationStatus?
+  revisionAuthorId String?
+  version          Int                      @default(0)
+
+  documents      NoticeDocument[]
+  sources        SourceDocument[]
+  procedureLinks ProcedureNoticeLink[]
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@index([publicationStatus, noticeType])
+  @@index([legalDocumentNumber])
 }
 
 /// Tài liệu đính kèm niêm yết
@@ -203,6 +321,24 @@ model NoticeDocument {
   fileSize  Int?
   mimeType  String?
   createdAt DateTime @default(now())
+}
+
+/// Liên kết giữa Thủ tục hành chính và Niêm yết công khai (Mốc NY3)
+model ProcedureNoticeLink {
+  id                  String              @id @default(uuid())
+  procedureId         String
+  procedure           Procedure           @relation(fields: [procedureId], references: [id], onDelete: Cascade)
+  noticeId            String
+  notice              Notice              @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  impactType          ProcedureImpactType @default(AMENDED)
+  receivingAuthority  String?             @db.VarChar(255) // Cơ quan tiếp nhận (vd: Trung tâm PVHCC xã Nghĩa Thành / Sở ngành)
+  resolvingAuthority  String?             @db.VarChar(255) // Cơ quan giải quyết
+  acceptsAtCenter     Boolean             @default(true)   // Có tiếp nhận tại Trung tâm xã Nghĩa Thành không
+  note                String?             @db.Text
+  createdAt           DateTime            @default(now())
+
+  @@unique([procedureId, noticeId])
+  @@index([noticeId])
 }
 
 // ============================================================

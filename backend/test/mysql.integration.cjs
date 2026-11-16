@@ -25,8 +25,8 @@ test('HTTP workflows run correctly against MySQL', { timeout: 60000 }, async t =
     try {
       if (ids.counters.length) {
         await db.queueEvent.deleteMany({ where: { counterId: { in: ids.counters } } });
-        await db.appointment.deleteMany({ where: { counterId: { in: ids.counters } } });
         await db.queueTicket.deleteMany({ where: { counterId: { in: ids.counters } } });
+        await db.appointment.deleteMany({ where: { counterId: { in: ids.counters } } });
         await db.counterDay.deleteMany({ where: { counterId: { in: ids.counters } } });
         await db.serviceCounter.deleteMany({ where: { id: { in: ids.counters } } });
       }
@@ -317,18 +317,33 @@ test('HTTP workflows run correctly against MySQL', { timeout: 60000 }, async t =
     assert.equal(completed.status, 201);
     assert.equal(completed.data.status, 'COMPLETED');
 
-    // 5. Concurrent appointment booking for tomorrow at 09:00 with slotCapacity = 2
+    // 5. Concurrent appointment booking + immediate call number issuance + slot-first ordering
     const tomorrow = addDays(vnToday(), 1);
     const idemApptKey = 'idem_appt_' + codeSuffix;
-    const aFirst = await reqWithToken('POST', '/queue/appointments', {
-      fieldId: field.id, date: tomorrow, slot: '09:00', contactName: '[DỮ LIỆU KIỂM THỬ] C0', contactPhone: '0901234560',
+    // Citizen 0 books afternoon slot 14:00 first -> gets sequence #1 immediately
+    const aAfternoon = await reqWithToken('POST', '/queue/appointments', {
+      fieldId: field.id, date: tomorrow, slot: '14:00', contactName: '[DỮ LIỆU KIỂM THỬ] C0 Chiều', contactPhone: '0901234560',
     }, citizens[0].token, { 'Idempotency-Key': idemApptKey, 'X-Forwarded-For': '10.0.2.1' });
     const aReplay = await reqWithToken('POST', '/queue/appointments', {
-      fieldId: field.id, date: tomorrow, slot: '09:00', contactName: '[DỮ LIỆU KIỂM THỬ] C0', contactPhone: '0901234560',
+      fieldId: field.id, date: tomorrow, slot: '14:00', contactName: '[DỮ LIỆU KIỂM THỬ] C0 Chiều', contactPhone: '0901234560',
     }, citizens[0].token, { 'Idempotency-Key': idemApptKey, 'X-Forwarded-For': '10.0.2.1' });
-    assert.equal(aFirst.status, 201);
+    assert.equal(aAfternoon.status, 201);
     assert.equal(aReplay.status, 201);
-    assert.equal(aFirst.data.id, aReplay.data.id);
+    assert.equal(aAfternoon.data.id, aReplay.data.id);
+    // Call number is issued immediately at booking time without needing check-in
+    assert.ok(aAfternoon.data.displayNumber, 'Call number must be issued immediately upon booking');
+    assert.equal(aAfternoon.data.displayNumber, aReplay.data.displayNumber);
+    assert.equal(aAfternoon.data.sequence, 1);
+
+    // Citizen 0 also books morning slot 09:00 -> gets sequence #2
+    const aFirst = await reqWithToken('POST', '/queue/appointments', {
+      fieldId: field.id, date: tomorrow, slot: '09:00', contactName: '[DỮ LIỆU KIỂM THỬ] C0 Sáng', contactPhone: '0901234560',
+    }, citizens[0].token, { 'X-Forwarded-For': '10.0.2.1' });
+    assert.equal(aFirst.status, 201);
+    assert.equal(aFirst.data.sequence, 2);
+
+    // Increase appointmentQuota to 4 so two more citizens can race for the remaining 1 seat in 09:00 (slotCapacity = 2)
+    await request('PATCH', `/queue/admin/counters/${counterA.id}`, { appointmentQuota: 4 }, true);
 
     // Two more citizens concurrently try to book the remaining 1 seat in 09:00 (slotCapacity = 2)
     const concurrentAppts = await Promise.all([
@@ -342,10 +357,17 @@ test('HTTP workflows run correctly against MySQL', { timeout: 60000 }, async t =
     assert.equal(concurrentAppts.filter(r => r.status === 201).length, 1, 'Only 1 remaining seat in 09:00 slot');
     assert.equal(concurrentAppts.filter(r => r.status === 409).length, 1, 'Over-capacity concurrent booking rejected with 409');
 
-    // Public lookup masks phone and never leaks full phone number
+    // Verify counter board for tomorrow orders morning (09:00) turns BEFORE afternoon (14:00) even though 14:00 was booked first
+    const boardTomorrow = await reqWithToken('GET', `/queue/admin/counters/${counterA.id}/board?date=${tomorrow}`, undefined, staffToken);
+    assert.equal(boardTomorrow.status, 200);
+    assert.equal(boardTomorrow.data.tickets.length, 3);
+    assert.deepEqual(boardTomorrow.data.tickets.map(t => t.slot), ['09:00', '09:00', '14:00']);
+
+    // Public lookup masks phone and includes immediate call number
     const lookup = await reqWithToken('GET', `/queue/lookup/${aFirst.data.lookupCode}`, undefined, undefined, { 'X-Forwarded-For': '10.0.2.9' });
     assert.equal(lookup.status, 200);
     assert.equal(lookup.data.appointment.maskedPhone, '*******560');
+    assert.equal(lookup.data.appointment.displayNumber, aFirst.data.displayNumber);
     assert.equal(lookup.data.appointment.contactPhone, undefined);
     assert.equal(lookup.data.appointment.contactName, undefined);
   });

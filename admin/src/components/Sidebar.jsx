@@ -4,7 +4,7 @@ import "./Sidebar.css";
 
 const NAV_ITEMS = [
   { to: "/",           label: "Tổng quan",       icon: "📊", exact: true },
-  { to: "/queue",      label: "Số thứ tự & Lịch hẹn", icon: "🎫", roles: ["SUPER_ADMIN", "COUNTER_STAFF"] },
+  { to: "/queue",      label: "Đặt lịch & Cấp số", icon: "🎫", roles: ["SUPER_ADMIN", "COUNTER_STAFF"] },
   { to: "/procedures", label: "Thủ tục HC",      icon: "📋" },
   { to: "/posts",      label: "Tin tức & Hướng dẫn", icon: "📰" },
   { to: "/notices",    label: "Niêm yết",         icon: "📌" },

@@ -100,6 +100,21 @@ export const api = {
     Object.entries(params).forEach(([k, v]) => v !== undefined && v !== "" && q.append(k, v));
     return get(`/notices/admin/all?${q}`);
   },
+  getNoticeFilters: () => get("/notices/filters/metadata"),
+  getNoticeSources: (params = {}) => {
+    const q = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => v !== undefined && v !== "" && q.append(k, v));
+    return get(`/notices/admin/sources?${q}`);
+  },
+  importNoticeInventory: (publishRecommendedSamples = false) =>
+    post("/notices/admin/import-inventory", { publishRecommendedSamples }),
+  updateNoticeSource: (sourceId, data) =>
+    patch(`/notices/admin/sources/${sourceId}`, data),
+  submitNotice: (id) => post(`/notices/admin/${id}/submit`, {}),
+  publishNotice: (id, data = {}) => post(`/notices/admin/${id}/publish`, data),
+  revokeNotice: (id, reason) => post(`/notices/admin/${id}/revoke`, { reason }),
+  setNoticeProcedures: (id, links) =>
+    put(`/notices/admin/${id}/procedures`, { links }),
   createNotice: (data) => post("/notices", data),
   updateNotice: (id, data) => patch(`/notices/${id}`, data),
 
@@ -119,6 +134,7 @@ export const api = {
   callNextTicket: (counterId) => post(`/queue/admin/counters/${counterId}/call-next`, {}),
   recallTicket: (ticketId) => post(`/queue/admin/tickets/${ticketId}/recall`, {}),
   serveTicket: (ticketId) => post(`/queue/admin/tickets/${ticketId}/serve`, {}),
+  startServingTicket: (ticketId) => post(`/queue/admin/tickets/${ticketId}/serve`, {}),
   completeTicket: (ticketId) => post(`/queue/admin/tickets/${ticketId}/complete`, {}),
   noShowTicket: (ticketId, reason) => post(`/queue/admin/tickets/${ticketId}/no-show`, { reason }),
   transferTicket: (ticketId, data) => post(`/queue/admin/tickets/${ticketId}/transfer`, data),
@@ -126,8 +142,9 @@ export const api = {
   noShowAppointment: (appointmentId, reason) => post(`/queue/admin/appointments/${appointmentId}/no-show`, { reason }),
   cancelAdminAppointment: (appointmentId, reason) => post(`/queue/admin/appointments/${appointmentId}/cancel`, { reason }),
 
-  // Cấu hình quầy (SUPER_ADMIN)
+  // Cấu hình quầy & Lịch phục vụ (SUPER_ADMIN)
   getStaffCandidates: () => get("/queue/admin/staff-candidates"),
+  setupStandardCounters: () => post("/queue/admin/setup-standard-counters", {}),
   createCounter: (data) => post("/queue/admin/counters", data),
   updateCounter: (counterId, data) => patch(`/queue/admin/counters/${counterId}`, data),
   setCounterSchedules: (counterId, windows) => put(`/queue/admin/counters/${counterId}/schedules`, { windows }),

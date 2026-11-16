@@ -1,3 +1,4 @@
+import { useState } from "react";
 import PostImage from "../components/post-image";
 import { useApiResource } from "../components/use-api-resource";
 import RemoteState, { Pagination } from "../components/remote-state";
@@ -12,21 +13,34 @@ const FEEDBACK_PORTAL_URL = "https://dichvucong.gov.vn/nop-phan-anh-kien-nghi?ty
 const FEEDBACK_SEARCH_URL = "https://vpcp.dichvucong.gov.vn/p/phananhkiennghi/pakn-search.html";
 const HCM_NEWS_URL = "https://vnexpress.net/chu-de/thanh-pho-ho-chi-minh-2091";
 
+/** Hai số điện thoại Hotline chính thức của Trung tâm */
+const HOTLINE_CONTACTS = [
+  {
+    number: "02543979999",
+    display: "0254 3979 999",
+    label: "Điện thoại bàn Trung tâm",
+    sublabel: "Số máy bàn trực tiếp tại Trung tâm",
+    icon: "zi-call",
+    iconBg: "bg-red-50 text-red-600",
+  },
+  {
+    number: "0937064147",
+    display: "0937 064 147",
+    label: "Số điện thoại cán bộ Trung tâm",
+    sublabel: "Số di động hỗ trợ của cán bộ tại Trung tâm",
+    icon: "zi-user",
+    iconBg: "bg-blue-50 text-blue-600",
+  },
+];
+
 /** Danh sách tiện ích nhanh trên trang chủ */
 const QUICK_SERVICES = [
   {
-    label: "Lấy số",
-    icon: "zi-clock-1",
-    color: "bg-indigo-50 text-indigo-600",
-    action: "nav",
-    to: "/queue?tab=ticket",
-  },
-  {
-    label: "Đặt lịch",
+    label: "Đặt lịch & Nhận số",
     icon: "zi-calendar",
     color: "bg-teal-50 text-teal-600",
     action: "nav",
-    to: "/queue?tab=appointment",
+    to: "/queue",
   },
   { label: "Hỏi đáp", icon: "zi-help-circle", color: "bg-blue-50 text-blue-600", action: "nav", to: "/faqs" },
   {
@@ -55,13 +69,6 @@ const QUICK_SERVICES = [
     icon: "zi-edit-text",
     color: "bg-orange-50 text-orange-600",
     action: "feedback",
-  },
-  {
-    label: "Liên hệ",
-    icon: "zi-location",
-    color: "bg-purple-50 text-purple-600",
-    action: "nav",
-    to: "/account",
   },
   {
     label: "Hotline",
@@ -101,6 +108,7 @@ function PostTypeBadge({ type }) {
 function HomePage() {
   const navigate = useNavigate();
   const runZaloAction = useZaloAction();
+  const [showHotlineModal, setShowHotlineModal] = useState(false);
   const centerResource = useApiResource("/center");
   const centerInfo = centerResource.data || {};
   const postsResource = useApiResource("/posts?limit=3");
@@ -109,7 +117,7 @@ function HomePage() {
 
   function handleQuickService(svc) {
     if (svc.action === "nav") navigate(svc.to);
-    else if (svc.action === "hotline") runZaloAction(() => callHotline(centerInfo.hotline));
+    else if (svc.action === "hotline") setShowHotlineModal(true);
     else if (svc.action === "feedback") runZaloAction(() => openServicePortal(FEEDBACK_PORTAL_URL));
     else if (svc.action === "oa") {
       runZaloAction(() => openZaloChat(centerInfo.oaId));
@@ -310,6 +318,69 @@ function HomePage() {
           </div>
         </Box>
       </div>
+
+      {/* Hộp chọn gọi 1 trong 2 số Hotline của Trung tâm */}
+      {showHotlineModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-4"
+          onClick={() => setShowHotlineModal(false)}
+        >
+          <div
+            className="w-full max-w-md bg-white rounded-2xl p-5 space-y-3 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <Text className="text-gray-900 font-bold text-base">
+                Gọi Hotline Trung tâm
+              </Text>
+              <button
+                type="button"
+                className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center text-gray-600"
+                onClick={() => setShowHotlineModal(false)}
+              >
+                <Icon icon="zi-close" size={18} />
+              </button>
+            </div>
+            <Text className="text-gray-500 text-xs">
+              Chọn số điện thoại bạn muốn gọi trực tiếp:
+            </Text>
+
+            <div className="space-y-2.5 pt-1">
+              {HOTLINE_CONTACTS.map((item) => (
+                <button
+                  key={item.number}
+                  type="button"
+                  className="w-full p-3.5 rounded-xl border border-gray-200 bg-gray-50/70 flex items-center gap-3 text-left active:opacity-75"
+                  style={{ minHeight: 60 }}
+                  onClick={() => {
+                    setShowHotlineModal(false);
+                    runZaloAction(() => callHotline(item.number));
+                  }}
+                >
+                  <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${item.iconBg}`}>
+                    <Icon icon={item.icon} size={22} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <Text className="text-gray-900 font-bold text-base leading-snug">
+                      {item.display}
+                    </Text>
+                    <Text className="text-gray-700 font-medium text-xs mt-0.5">
+                      {item.label}
+                    </Text>
+                    <Text className="text-gray-400 text-xs">
+                      {item.sublabel}
+                    </Text>
+                  </div>
+                  <div className="px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg flex items-center gap-1">
+                    <Icon icon="zi-call" size={14} />
+                    <span>Gọi</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </Page>
   );
 }

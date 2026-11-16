@@ -1,378 +1,343 @@
-# Kế hoạch triển khai hệ thống Niêm yết công khai
+# Kế hoạch V2 — Niêm yết văn bản và liên kết thủ tục hành chính
 
 **Dự án:** Zalo Mini App Trung tâm Phục vụ hành chính công xã Nghĩa Thành  
-**Ngày lập:** 12/11/2026  
-**Người thực hiện kỹ thuật:** Antigravity  
-**Nguồn đầu vào:** 53 link Google Drive do chủ dự án cung cấp cho Antigravity  
-**Trạng thái tài liệu:** Kế hoạch triển khai; không phải báo cáo xác nhận chức năng đã hoàn thành.
-
-## 1. Mục tiêu và phạm vi
-
-Hoàn thiện chức năng Niêm yết công khai trên backend, trang quản trị và Zalo Mini App. Quản trị viên quản lý và duyệt văn bản; người dân tìm kiếm, lọc, xem nội dung và mở tài liệu trên điện thoại trong Zalo.
-
-Hệ thống dùng MySQL và tận dụng kiến trúc hiện có của dự án. Antigravity cần xác minh thư viện, phiên bản, schema và API thực tế trước khi lựa chọn cách triển khai.
-
-Không mặc định 53 link tương ứng 53 bài niêm yết. Một bài có thể gồm văn bản chính, quyết định, danh sách và nhiều phụ lục. File này không chứa danh sách 53 link; sử dụng danh sách đã được cung cấp trong cuộc trò chuyện với Antigravity.
-
-## 2. Nguyên tắc triển khai
-
-- Đọc cấu trúc dự án, hướng dẫn làm việc, kế hoạch, database và module niêm yết hiện có trước khi sửa.
-- Tận dụng đăng nhập, phân quyền, quy trình duyệt, phiên bản nội dung, tải file, phân trang và thành phần giao diện đang có.
-- Không viết lại toàn bộ hệ thống nếu có thể mở rộng chức năng hiện tại.
-- Không làm ảnh hưởng tin tức, thủ tục, bốc số và đặt lịch.
-- Không xóa dữ liệu hiện có. Thay đổi database phải có migration, giải thích ảnh hưởng và phương án triển khai.
-- Không tự thay đổi quyền chia sẻ Drive, công khai tài liệu, xuất bản bài hoặc triển khai lên môi trường chính thức.
-- Không suy đoán số văn bản, ngày ban hành, thời hạn niêm yết hoặc cơ quan ban hành.
-- AI chỉ đề xuất tóm tắt, phân loại và nhóm tài liệu; cán bộ kiểm tra trước khi xuất bản.
-- Chỉ dùng dữ liệu thử để kiểm thử tự động. Không ghi nội dung nhạy cảm, token hoặc thông tin cá nhân vào log.
-
-## 3. Kiến trúc và luồng tổng thể
-
-```text
-53 link Drive / file từ máy
-          |
-          v
-Kiểm kê -> phân nhóm -> kiểm tra thông tin
-          |
-          v
-Admin tạo hoặc nhập bài nháp
-          |
-          v
-Gửi duyệt -> cán bộ kiểm tra -> duyệt / trả lại
-          |
-          v
-Backend kiểm tra trạng thái và quyền hiển thị
-          |
-          v
-Mini App: tìm kiếm -> lọc -> chi tiết -> xem tài liệu
-```
-
-MySQL lưu thông tin bài, metadata tài liệu và lịch sử. Nội dung file được lưu tại nơi lưu trữ file bền vững hoặc giữ trên Drive. Không lưu file nhị phân trực tiếp vào bảng bài viết.
-
-## 4. Giai đoạn 1 — Khảo sát và kiểm kê 53 link
-
-### 4.1. Khảo sát dự án
-
-- Xác định module, model, API và trang niêm yết hiện có.
-- Kiểm tra cơ chế phân quyền, duyệt nội dung và phiên bản chỉnh sửa.
-- Kiểm tra cách lưu file, cấu hình HTTPS, địa chỉ backend và cách mở tài liệu trong Zalo.
-- Lập danh sách phần tái sử dụng được, phần cần bổ sung và rủi ro tương thích.
-
-### 4.2. Bảng kiểm kê tài liệu
-
-| Trường | Nội dung |
-|---|---|
-| Số thứ tự | Vị trí trong danh sách nguồn |
-| Link nguồn | Link đã cung cấp |
-| Loại nguồn | File hoặc thư mục |
-| Mã file Drive | Dùng đối chiếu và phát hiện trùng |
-| Tên tài liệu | Tên thực tế |
-| Khả năng truy cập | Truy cập được / yêu cầu quyền / không tồn tại / chưa kiểm tra |
-| Định dạng | PDF, ảnh, Word hoặc loại khác |
-| Tiêu đề đề xuất | Tên bài niêm yết dễ hiểu |
-| Lĩnh vực đề xuất | Dựa trên nội dung |
-| Số và ngày văn bản | Chỉ ghi khi đọc được |
-| Cơ quan ban hành | Chỉ ghi khi xác minh được |
-| Thời hạn niêm yết | Ghi giá trị và nguồn xác định; thiếu thì để trống |
-| Nhóm tài liệu | Văn bản chính và phụ lục liên quan |
-| Ghi chú | Trùng, thiếu trang, thông tin cá nhân cần kiểm tra… |
-
-### 4.3. Quy tắc xử lý
-
-- Nếu link là thư mục, kiểm kê các file bên trong trong phạm vi được phép truy cập.
-- Link khác nhau trỏ cùng mã file Drive được đánh dấu trùng nguồn; không tự xóa tài liệu.
-- Không gộp chỉ dựa vào tên gần giống; kiểm tra số văn bản, nội dung và mối quan hệ phụ lục.
-- File không đọc được phải ghi nguyên nhân; không tạo nội dung thay thế.
-- Kiểm tra khả năng xem bằng người không có quyền quản trị Drive.
-- Không tự bật chia sẻ công khai để khắc phục lỗi quyền truy cập.
-
-**Đầu ra:** bảng kiểm kê, danh sách nhóm bài đề xuất và các thông tin cần cán bộ bổ sung. Trong lúc chờ xác nhận nội dung, tiếp tục xây dựng chức năng bằng dữ liệu thử.
-
-## 5. Giai đoạn 2 — Thiết kế dữ liệu
-
-Đối chiếu schema thực tế và chỉ bổ sung phần còn thiếu. Các trường dưới đây mô tả nghiệp vụ, không bắt buộc tên cột cụ thể.
-
-### 5.1. Bài niêm yết
-
-- ID, tiêu đề, tóm tắt, nội dung.
-- Lĩnh vực, loại niêm yết.
-- Số văn bản, ngày ban hành, cơ quan ban hành.
-- Ngày bắt đầu và ngày kết thúc niêm yết, cho phép thiếu khi chưa xác định.
-- Đầu mối tiếp nhận ý kiến nếu có.
-- Đánh dấu ưu tiên.
-- Trạng thái duyệt.
-- Người tạo, người cập nhật, người duyệt.
-- Thời điểm tạo, cập nhật, duyệt và xuất bản.
-- Thông tin phiên bản hoặc tham chiếu lịch sử theo cơ chế hiện có.
-
-### 5.2. Tài liệu đính kèm
-
-Một bài có nhiều tài liệu:
+**Cập nhật:** 13/11/2026  
+**Đầu vào:** 53 link Drive do người dùng cung cấp  
+**Bản này thay thế định hướng của kế hoạch ngày 12/11/2026.**
 
-- ID và ID bài niêm yết.
-- Tên hiển thị.
-- Nguồn: Google Drive hoặc file tải lên.
-- Link nguồn hoặc khóa lưu file; mã file Drive nếu có.
-- Loại file, dung lượng nếu xác định được.
-- Vai trò: văn bản chính hoặc phụ lục.
-- Thứ tự hiển thị.
-- Kết quả và thời điểm kiểm tra truy cập.
+## 1. Cơ sở điều chỉnh và phạm vi đã kiểm tra
 
-### 5.3. Danh mục lĩnh vực ban đầu
+Đã lấy được văn bản trích xuất từ 53/53 file, tất cả được kết nối Drive nhận diện là PDF. Đã rà soát phần thông báo, tiêu đề quyết định, các trích đoạn Điều 1 và đối chiếu sâu hơn một số điểm bất thường. Có 53 mã file khác nhau.
 
-1. Tư pháp – hộ tịch.
-2. Kinh doanh – môi trường.
-3. Đất đai – quy hoạch.
-4. Văn hóa – giáo dục – y tế – thương binh và xã hội.
-5. Thông tin chung.
+Không tuyên bố đã thẩm định pháp lý hoặc đọc kỹ toàn bộ mọi phụ lục. Chưa kiểm tra chữ ký, số trang thực tế, quyền xem ẩn danh hoặc mở file trong Zalo. Những bước này cần tiếp tục khi nghiệm thu dữ liệu.
 
-Cho phép điều chỉnh danh mục; không gắn cứng toàn bộ vào mã giao diện. Lĩnh vực và loại niêm yết là hai thuộc tính riêng.
+Tài liệu kèm theo:
+- [Kiểm kê 53 nguồn, trích yếu và điểm cần xử lý](kiem-ke-53-link-niem-yet.md).
+- [Dữ liệu kiểm kê JSON để Antigravity tham khảo](output/niem-yet-53-nguon/kiem-ke-53-nguon.json). Đây là dữ liệu kiểm kê, không phải seed được phép xuất bản.
+
+### 1.1. Bản chất nguồn thực tế
 
-### 5.4. Hai loại trạng thái độc lập
+| Nhóm theo nội dung tiêu đề | Số nguồn | Cách sử dụng |
+|---|---:|---|
+| Công bố TTHC hoặc danh mục TTHC | 41 | Lưu hồ sơ niêm yết; chọn lọc liên kết tới module Thủ tục |
+| Phê duyệt quy trình nội bộ/điện tử giải quyết TTHC | 10 | Lưu văn bản quy trình; không tự biến thành hướng dẫn nộp hồ sơ |
+| Công bố TTHC nội bộ trong hệ thống hành chính nhà nước | 2 | Tách loại nội dung, không tạo nút đặt lịch/nộp hồ sơ cho người dân |
+| Tổng | 53 | Tính theo nguồn, chưa loại trùng và chưa chốt hồ sơ hợp lệ |
 
-**Trạng thái nội dung:** Nháp → Chờ duyệt → Đã đăng → Thu hồi. Trả lại bài về trạng thái chỉnh sửa theo quy trình hiện có, kèm lý do.
+Một PDF thường là một bộ tài liệu đã ghép: thông báo niêm yết của Trung tâm → công văn triển khai của xã → quyết định thành phố → danh mục/phụ lục. Không tách thành nhiều bài chỉ vì một file có nhiều văn bản.
 
-**Trạng thái thời hạn:** Sắp niêm yết / Đang niêm yết / Đã hết thời hạn / Chưa xác định thời hạn.
+Ví dụ:
+- Nguồn 8: Quyết định 5083/QĐ-UBND, Điều 1 nêu danh mục 07 TTHC sửa đổi, bổ sung về hộ kinh doanh.
+- Nguồn 3: Quyết định 6544/QĐ-UBND, Điều 1 nêu 55 TTHC nội bộ của Sở Tài chính.
+- Nguồn 21: Quyết định 6327/QĐ-UBND, Điều 1 nêu 60 quy trình nội bộ/điện tử.
+- Nguồn 1 có cả TTHC cấp tỉnh và cấp xã trong cùng bộ tài liệu.
 
-- Tính thời hạn từ đồng hồ máy chủ theo múi giờ Việt Nam.
-- Không tự đặt thời hạn mặc định.
-- Ngày kết thúc dạng ngày được hiểu là hết ngày đó; nên triển khai điều kiện nhỏ hơn đầu ngày kế tiếp để tránh lỗi độ chính xác thời gian.
-- Ngày kết thúc không được trước ngày bắt đầu.
-- Khi thiếu mốc thời gian, hiển thị mốc đã biết và trạng thái chưa xác định phù hợp; không tự điền phần thiếu.
-- Bài hết hạn vẫn có thể tra cứu trong kho lưu trữ, không tự xóa.
-- Bài thu hồi không được trả qua API công khai, kể cả đường dẫn chi tiết.
-- Xác định rõ việc bài đã đăng nhưng chưa đến ngày bắt đầu được hiển thị ở nhóm “Sắp niêm yết” hay chờ tới ngày bắt đầu. Ghi lựa chọn vào tài liệu nghiệp vụ trước khi nghiệm thu; không đồng nhất thời điểm đăng với thời điểm bắt đầu niêm yết.
+Các số lượng trên mô tả văn bản nguồn; không phải số thủ tục đang có hiệu lực hoặc đang được Trung tâm tiếp nhận.
 
-## 6. Giai đoạn 3 — Backend và API
+### 1.2. Các thay đổi bắt buộc so với kế hoạch cũ
 
-Mở rộng API hiện có và thống nhất quy ước tên, cấu trúc phản hồi, lỗi và phân trang với dự án.
+1. Trọng tâm là **thư viện hồ sơ niêm yết quyết định về TTHC**, không phải bảng thông báo có ngày hết hạn là chính.
+2. Không ép mọi tài liệu vào bốn quầy tiếp dân. Lĩnh vực pháp lý, cơ quan quản lý và quầy phục vụ là ba khái niệm riêng.
+3. Một hồ sơ có thể chứa nhiều lĩnh vực; cần quan hệ nhiều-nhiều.
+4. Tách niêm yết văn bản với hướng dẫn thực hiện từng thủ tục. Hai module liên kết tới nhau, không sao chép toàn bộ PDF thành bài dài.
+5. Theo dõi thay thế, sửa đổi và bãi bỏ ở đúng phạm vi; không tự gán cả văn bản hết hiệu lực vì có từ “bãi bỏ”.
+6. Giữ Drive làm nguồn ở giai đoạn đầu, ưu tiên làm sạch dữ liệu và tra cứu trước tính năng tải file nâng cao.
+
+## 2. Xử lý chất lượng dữ liệu trước khi công bố
 
-### 6.1. API công khai
+### 2.1. Nguồn cần kiểm tra đặc biệt
 
-- Danh sách có phân trang.
-- Tìm kiếm theo tiêu đề và số văn bản.
-- Lọc lĩnh vực, loại niêm yết và thời hạn.
-- Chi tiết bài cùng danh sách tài liệu.
-- Chỉ trả nội dung đã duyệt và đủ điều kiện hiển thị.
-- Kiểm tra quyền công khai tại endpoint phục vụ file, không chỉ ở trang danh sách.
+| Nguồn | Quan sát từ văn bản trích xuất | Hướng xử lý |
+|---|---|---|
+| 22 | Đầu file ghi 4811, nội dung sau là 5116 về Đo đạc và bản đồ | Giữ trạng thái cần đối chiếu; không gộp với nguồn 24, không tự sửa PDF |
+| 24 | Nội dung phần quyết định phù hợp 4811, 32 quy trình nhiều lĩnh vực | Giữ riêng; đối chiếu bản gốc trước duyệt |
+| 42 và 43 | Toàn bộ văn bản trích xuất giống nhau, cùng 3504 | Đánh dấu trùng văn bản; so sánh PDF/chữ ký trước khi chọn nguồn chính; giữ cả hai nguồn |
+| 31 | Dòng đầu thông báo ghi tháng 6 nhưng dẫn quyết định tháng 7 và công văn tháng 8 | Đối chiếu hình ảnh và bản đã ban hành; chưa chốt ngày thông báo |
+| 1 | Thông báo dẫn ngày 15/7, phần quyết định có cụm số/ngày rời “3826 30 6” | Không tự chốt ngày quyết định từ bản trích xuất |
 
-### 6.2. API quản trị
+Nhiều số/ngày bị tách vị trí trong quá trình trích xuất. Không kết luận tài liệu chưa ký hoặc tự ghép số/ngày bằng suy đoán.
 
-- Tạo, sửa, xem trước bài.
-- Gửi duyệt, duyệt, trả lại và thu hồi.
-- Thêm, sửa, sắp xếp và gỡ tài liệu.
-- Nhập hàng loạt có bước kiểm tra trước khi lưu.
-- Lịch sử thay đổi.
-- Kiểm tra tình trạng truy cập tài liệu.
+### 2.2. Quy tắc nhập
 
-### 6.3. Yêu cầu kỹ thuật
+- Lưu đủ 53 nguồn vào bảng kiểm kê trước.
+- Tạo hồ sơ nháp ứng viên theo bộ thông báo và quyết định, không tạo ngay 53 bài công khai.
+- Không gộp hai quyết định chỉ vì cùng lĩnh vực hoặc gần ngày.
+- Nguồn 42/43 là ứng viên gộp; nguồn 22 là xung đột nội dung, không phải cặp trùng với 24.
+- Không chốt số hồ sơ cuối cùng cho đến khi xử lý trùng và xung đột.
+- Tách trạng thái “đọc được qua kết nối Drive” và “người dân xem không cần đăng nhập”.
+- Mỗi metadata cần nguồn chứng minh, vị trí/trích đoạn, trạng thái kiểm tra, người xác nhận.
+- Không lấy ngày tạo file Drive làm ngày ban hành hoặc bắt đầu niêm yết.
+- Không sửa bản gốc, chia sẻ lại Drive hoặc công khai bài trong quá trình kiểm kê.
 
-- Thực thi quyền ở backend cho mọi thao tác; không chỉ ẩn nút ở giao diện.
-- Tận dụng phiên bản nội dung: chỉnh sửa bài đã đăng không được tự bỏ qua bước duyệt.
-- Cập nhật bài và quan hệ tài liệu bằng transaction khi cần để tránh lưu dở dang.
-- Link sai định dạng phải có thông báo rõ.
-- Nếu backend kiểm tra URL, chỉ cho phép nguồn xác định, chặn mạng nội bộ và kiểm tra lại mọi chuyển hướng; có giới hạn thời gian và kích thước phản hồi.
-- Không coi HTTP 200 là chắc chắn tài liệu xem được: trang đăng nhập hoặc trang yêu cầu quyền cũng có thể trả 200.
-- Chống tạo trùng khi gửi lại cùng đợt nhập; báo rõ dòng trùng thay vì ghi đè tự động.
-- Kiểm tra tìm kiếm tiếng Việt có dấu và không dấu với collation thực tế của MySQL.
-- Phân trang có thứ tự ổn định, có khóa phụ để tránh lặp hoặc bỏ sót bài khi bằng ngày.
+## 3. Trải nghiệm người dân
 
-## 7. Giai đoạn 4 — Drive và tải file từ máy
+### 3.1. Mục Niêm yết công khai
 
-### 7.1. Link Google Drive
+Giao diện chính:
+- Tìm theo tên, số thông báo, số quyết định hoặc từ khóa lĩnh vực.
+- Lọc theo lĩnh vực, cơ quan quản lý, loại văn bản và năm.
+- Phân trang 10–20 hồ sơ; API không trả nội dung PDF ở danh sách.
+- Mỗi thẻ có tên ngắn, số quyết định, ngày đã xác nhận, lĩnh vực và loại tài liệu.
+- Nhãn pháp lý chỉ hiển thị khi cán bộ đã xác nhận; không mặc định “Còn hiệu lực”.
+- Không bắt buộc ảnh đại diện; dùng biểu tượng PDF/văn bản.
 
-- Nhập link và tên tài liệu, giữ link nguồn.
-- Kiểm tra và thông báo nếu cần quyền truy cập.
-- Không phụ thuộc tài khoản Google đang đăng nhập của quản trị viên.
-- Không tự chuyển mọi link thành link tải trực tiếp.
-- Khi không xem được bên trong Zalo, cung cấp cách mở bên ngoài phù hợp với SDK đang dùng.
-- Kiểm tra file và thư mục là các trường hợp khác nhau; không coi link thư mục là một file PDF.
+Ba nhóm nội dung:
+1. Công bố thủ tục hành chính.
+2. Quy trình giải quyết thủ tục.
+3. Thủ tục hành chính nội bộ.
 
-### 7.2. Tải file từ máy
+“TTHC nội bộ” là loại nghiệp vụ, không tự đồng nghĩa tài liệu mật. Quyền công khai vẫn do người có thẩm quyền xác nhận; không cho nhóm này nút lấy số/nộp hồ sơ.
+
+### 3.2. Trang chi tiết hồ sơ
+
+Thứ tự:
+1. Tiêu đề ngắn và trích yếu đầy đủ.
+2. Thông báo Trung tâm: số, ngày, đơn vị ban hành.
+3. Quyết định được niêm yết: số, ngày, cơ quan ban hành.
+4. Cơ quan quản lý chuyên ngành và các lĩnh vực.
+5. Tóm tắt 3–5 dòng, ghi rõ đây là tóm tắt để tra cứu.
+6. Nút “Xem toàn bộ văn bản PDF”.
+7. Danh mục phần tài liệu nếu đã xác minh vị trí.
+8. Thủ tục liên quan đã được duyệt, nếu có.
+9. Văn bản liên quan: sửa đổi, bổ sung, thay thế, bãi bỏ theo phạm vi đã xác nhận.
 
-- Giai đoạn đầu hỗ trợ PDF, JPG, PNG và WebP.
-- Giới hạn dung lượng cấu hình được; đề xuất khởi đầu 10 MB/file.
-- Backend kiểm tra loại file thực tế, không chỉ phần mở rộng hoặc MIME do trình duyệt gửi.
-- Hiển thị tiến trình tải, lỗi, khả năng thử lại và tên file sau khi tải.
-- Lưu file tại nơi truy cập được từ điện thoại qua HTTPS.
-- Có lưu trữ bền vững, cấu hình volume nếu dùng Docker và phương án sao lưu.
-- Không dùng nguyên bộ xử lý ảnh đại diện để xử lý PDF.
-- Tên lưu file do hệ thống tạo, không dùng đường dẫn do người dùng gửi.
-- Tài liệu nháp cần kiểm soát truy cập; không tự tạo đường dẫn công khai không bảo vệ.
-- Khi gỡ file khỏi một bài, kiểm tra tham chiếu từ bài hoặc phiên bản khác trước khi xóa vật lý. Giai đoạn đầu không tự xóa file còn chưa xác định được tham chiếu.
+Với PDF đã ghép, bản đầu chỉ cần một nút mở toàn bộ. Không giả lập các file riêng “thông báo”, “quyết định”, “phụ lục” nếu chúng chưa tồn tại. Có thể bổ sung mục lục với khoảng trang sau khi kiểm tra PDF; không hứa nhảy đúng trang khi trình xem Drive trong Zalo chưa hỗ trợ.
 
-### 7.3. Thu hồi tài liệu
+### 3.3. Mục Thủ tục
 
-Với file do hệ thống quản lý, quyền truy cập phải theo trạng thái bài và các tham chiếu hợp lệ. Chú ý cache không làm tài liệu nháp hoặc thu hồi tiếp tục lộ ngoài ý muốn.
+Module Thủ tục tiếp tục phục vụ câu hỏi: chuẩn bị gì, nộp ở đâu, thời hạn, phí, biểu mẫu.
 
-Với link Drive đã công khai từ trước, thu hồi bài trên ứng dụng không tự thu hồi link nguồn. Hướng dẫn quản trị phải nêu rõ giới hạn này.
+- Chỉ nhập thủ tục phù hợp sau khi kiểm tra phụ lục cụ thể và phạm vi áp dụng.
+- Một thủ tục có thể liên quan nhiều văn bản và nhiều lần cập nhật.
+- Lưu mã TTHC nếu nguồn có; không dùng tên làm khóa duy nhất.
+- Đính kèm căn cứ nguồn và trang/mục đã kiểm tra.
+- Không cộng số lượng qua các quyết định để suy ra tổng thủ tục hiện hành.
+- Không tự chuyển các hàng “bị bãi bỏ” thành dịch vụ đang tiếp nhận.
+- Không tự gán nội dung thiếu thành miễn phí, không cần hồ sơ hoặc xử lý trong 30 phút.
+
+### 3.4. Liên hệ bốn quầy
 
-Chưa cần tự động tải toàn bộ 53 tài liệu từ Drive về máy chủ trong giai đoạn đầu.
+Thông tin đã được người dùng xác nhận:
+- Quầy 1: Tư pháp – hộ tịch.
+- Quầy 2: Giấy phép kinh doanh, bao gồm đăng ký hộ kinh doanh – môi trường.
+- Quầy 3: Đất đai – quy hoạch.
+- Quầy 4: Văn hóa – giáo dục – y tế – thương binh và xã hội.
+
+Chỉ gắn quầy ở mức thủ tục được Trung tâm xác nhận tiếp nhận; mặc định chưa gắn. Thủ tục cấp thành phố, cơ quan chuyên ngành hoặc nội bộ không tự được đưa vào hàng đợi quầy xã.
+
+Thời lượng dự kiến 30 phút/lượt tại quầy không phải thời hạn giải quyết TTHC trong văn bản.
+
+## 4. Phân loại theo nguồn thực tế
+
+Xây danh mục có thể mở rộng, hỗ trợ nhiều lĩnh vực cho mỗi hồ sơ:
+- Đất đai; đo đạc và bản đồ; địa chất và khoáng sản; biển và hải đảo.
+- Môi trường; trồng trọt; bảo vệ thực vật; thủy sản; chăn nuôi và thú y; chất lượng nông lâm sản.
+- Xây dựng; vật liệu xây dựng; quản lý chất lượng công trình; kinh doanh bất động sản.
+- Đường bộ; đường sắt; đường thủy nội địa; hàng hải; đăng kiểm.
+- Quy hoạch đô thị và nông thôn.
+- Hộ kinh doanh; hợp tác xã/tổ hợp tác; đấu thầu; hỗ trợ doanh nghiệp.
+- Công thương; xuất nhập khẩu; thương mại quốc tế; điện lực và các lĩnh vực ghi trong từng quyết định.
+- An toàn bức xạ và hạt nhân.
+- Điện ảnh; báo chí.
+- Phòng cháy, chữa cháy và cứu nạn, cứu hộ.
+- Nội dung thuộc Ban Quản lý khu chế xuất và công nghiệp: phân loại chi tiết theo phụ lục, không dùng tên cơ quan làm lĩnh vực duy nhất.
 
-## 8. Giai đoạn 5 — Trang quản trị
+Các nhóm lớn trên là đề xuất giao diện. Lưu tên lĩnh vực nguyên văn riêng để không mất nghĩa pháp lý; chưa có căn cứ thì để chờ phân loại.
+
+## 5. Mô hình dữ liệu đề xuất
+
+Đối chiếu schema đang có trước khi đặt tên bảng hoặc tạo migration. Không yêu cầu viết lại hệ thống.
+
+### 5.1. SourceDocument — nguồn tài liệu
 
-### 8.1. Danh sách
+- ID, sourceType, driveFileId, originalUrl, tên file nếu xác minh được, MIME.
+- Trạng thái đọc bằng connector và kiểm tra công khai riêng.
+- Ngày kiểm kê, ngày kiểm tra link, ghi chú lỗi.
+- Trạng thái chất lượng: chưa kiểm tra / phù hợp / trùng ứng viên / xung đột.
+- Dấu vân tay văn bản trích xuất để phát hiện trùng; phân biệt với checksum file gốc.
+- Đường dẫn file tải lên nếu sử dụng lưu trữ hệ thống.
+- Lưu phiên bản nguồn hoặc modifiedTime/checksum khi có; link không đổi không đảm bảo nội dung không đổi.
+
+### 5.2. Notice — hồ sơ niêm yết
+
+- ID, title, summary, noticeNumber, noticeDate, publishingUnit.
+- publicationStatus, người tạo/duyệt, thời điểm đăng/thu hồi.
+- noticeType: công bố TTHC / quy trình / TTHC nội bộ.
+- Quan hệ nhiều nguồn, nhiều lĩnh vực và nhiều văn bản.
+- Ngày niêm yết bắt đầu/kết thúc chỉ khi có căn cứ, cho phép null.
+- Metadata và tóm tắt có trạng thái xác minh riêng.
+- Sửa bản đã đăng phải qua phiên bản/chờ duyệt theo cơ chế hiện có.
+
+### 5.3. LegalDocument — văn bản được niêm yết
+
+- Loại: quyết định / thông báo / công văn / loại khác.
+- Số, ngày ban hành, cơ quan ban hành.
+- Cơ quan quản lý chuyên ngành là trường riêng.
+- Trích yếu, ngày hiệu lực nếu đã xác minh.
+- legalStatus: chưa xác minh / còn hiệu lực / hết hiệu lực một phần / hết hiệu lực toàn bộ / trạng thái bổ sung nếu cần.
+- Thông tin căn cứ, người xác nhận và ngày xác nhận trạng thái.
+- Quan hệ sửa đổi/thay thế/bãi bỏ có phạm vi cụ thể và nguồn chứng minh.
+
+Thông báo xã, công văn triển khai và quyết định thành phố không dùng chung một trường số/ngày.
+
+### 5.4. Liên kết thủ tục
+
+Tận dụng model Procedure hiện có, bổ sung bảng liên kết nếu thiếu:
+- noticeId, legalDocumentId, procedureId.
+- Tác động: mới ban hành / sửa đổi / bổ sung / thay thế / bãi bỏ.
+- Phạm vi và ngày áp dụng đã xác nhận.
+- sourceDocumentId, trang/mục, người xác nhận.
+- Phân biệt cơ quan tiếp nhận, cơ quan giải quyết và thẩm quyền quyết định.
+- Quầy xử lý do cấu hình nghiệp vụ của Trung tâm, cho phép chưa xác định.
 
-- Tìm kiếm và lọc lĩnh vực, trạng thái duyệt, thời hạn.
-- Hiển thị tiêu đề, số văn bản, lĩnh vực, thời gian, số file và trạng thái.
-- Thao tác theo quyền: xem, sửa, gửi duyệt, duyệt, trả lại và thu hồi.
-- Cảnh báo tài liệu lỗi hoặc cần kiểm tra quyền truy cập.
+### 5.5. Ba trục trạng thái độc lập
+
+1. **Xuất bản:** nháp, chờ duyệt, đã đăng, thu hồi.
+2. **Hiệu lực văn bản:** do đối chiếu và cán bộ xác nhận, không suy từ ngày upload hoặc từ khóa.
+3. **Thời hạn niêm yết:** tùy chọn, có ngày thì tính theo múi giờ Việt Nam; không có thì không gắn nhãn hết hạn.
+
+Bài hết thời hạn niêm yết không đồng nghĩa quyết định hết hiệu lực. Quyết định mới trong cùng lĩnh vực không tự làm hết hiệu lực toàn bộ quyết định cũ.
 
-### 8.2. Tạo và chỉnh sửa
+## 6. Backend và API
+
+Tận dụng NestJS, Prisma/MySQL, xác thực và phân quyền hiện có; xác minh thực tế trước triển khai.
+
+API công khai:
+- Danh sách có tìm kiếm, lọc, phân trang ổn định.
+- Chi tiết hồ sơ, các văn bản và tài liệu nguồn.
+- Thủ tục liên quan đã duyệt.
+- Không trả dữ liệu nháp/thu hồi hoặc ghi chú nội bộ cho người dân.
+
+API quản trị:
+- CRUD hồ sơ nháp, tài liệu và danh mục.
+- Gửi duyệt/duyệt/trả lại/thu hồi.
+- Nhập kiểm kê → xem trước → tạo nháp.
+- Xác nhận metadata, trùng nguồn, xung đột nguồn và quan hệ văn bản.
+- Audit log và lịch sử thay đổi.
+
+Quy tắc:
+- Kiểm tra quyền tại backend, không chỉ ẩn nút.
+- Dùng transaction khi cập nhật hồ sơ và liên kết.
+- Chống nhập lặp bằng source ID và mã đợt nhập; không ghi đè dữ liệu đã được cán bộ xác nhận.
+- Không khóa duy nhất theo số quyết định mà thiếu cơ quan/năm/loại; kiểm tra trùng là bước xem xét, không xóa tự động.
+- Chưa dùng full-text PDF để tìm kiếm công khai trong MVP; tìm trong metadata/tóm tắt đã duyệt.
+- Không trả toàn bộ text PDF lớn qua API danh sách.
+- Nếu kiểm tra URL từ backend: giới hạn nguồn, chặn mạng nội bộ, kiểm tra chuyển hướng, timeout và giới hạn dung lượng.
+- Không coi HTTP 200 là đã truy cập đúng tài liệu; có thể là trang đăng nhập.
+
+## 7. Admin và luồng nhập 53 nguồn
+
+### 7.1. Các màn hình
+
+1. **Nguồn tài liệu:** 53 dòng với trạng thái kiểm kê, trùng và xung đột.
+2. **Hồ sơ niêm yết:** danh sách bài, lĩnh vực, cơ quan, trạng thái duyệt.
+3. **Biên tập/duyệt:** metadata thông báo và quyết định riêng, các nguồn, tóm tắt, lĩnh vực, ghi chú.
+4. **Liên kết thủ tục:** chọn thủ tục hiện có hoặc tạo bản nháp có nguồn chứng minh.
+
+### 7.2. Luồng
+
+Nhập danh sách → chuẩn hóa URL → đối chiếu nguồn → đề xuất metadata → xử lý xung đột → cán bộ xác nhận → tạo nháp → xem trước → gửi duyệt → duyệt đăng.
+
+- Dùng bảng kiểm kê kèm theo làm điểm xuất phát, không xuất bản trực tiếp từ JSON.
+- Giữ bản đọc ban đầu và giá trị đã sửa để truy vết.
+- Nguồn 1, 22, 31 và cặp 42/43 phải có tác vụ kiểm tra rõ ràng.
+- Không chặn toàn bộ dự án vì vài nguồn cần kiểm tra: tiếp tục hồ sơ đã đủ điều kiện.
+- Không có nút “Xuất bản toàn bộ 53 link” trong bước nhập.
+- Tóm tắt không thay thế văn bản gốc.
+- Không mặc định số/ngày trống ở bản trích xuất là văn bản chưa ban hành.
+
+## 8. Lưu trữ và mở PDF
+
+### MVP: giữ Drive
+
+- Lưu metadata và URL nguồn; PDF được mở khi người dân bấm.
+- Kiểm tra quyền xem công khai bằng tài khoản không có đặc quyền hoặc phiên không đăng nhập.
+- Thử trong Zalo Android/iOS nếu có thiết bị.
+- Có thông báo file không mở được và phương án mở ngoài phù hợp SDK.
+- Không nhúng tải sẵn tất cả PDF; đặc biệt có nguồn dài.
+- Không tự chuyển link thành link tải trực tiếp.
+- Không yêu cầu người dân đăng nhập tài khoản Google của cán bộ.
+- Việc connector đọc được 53 file không chứng minh 53 file công khai cho mọi người.
+
+### Giai đoạn sau: file từ máy
+
+- Hỗ trợ PDF/JPG/PNG/WebP, giới hạn dung lượng cấu hình theo tài liệu thực tế.
+- Kiểm tra MIME/nội dung thật, tên lưu do hệ thống tạo.
+- File có quyền truy cập theo bài; nháp không có URL công khai không kiểm soát.
+- Có volume/lưu trữ bền vững, sao lưu và khôi phục.
+- Không dùng bộ nén ảnh để xử lý PDF.
+- Không tự xóa nguồn gốc hoặc file còn được hồ sơ/phiên bản khác tham chiếu.
+- Thu hồi bài không tự thu hồi quyền link Drive đã công khai trước đó; hướng dẫn quản trị phải ghi rõ.
+
+## 9. Lộ trình triển khai cho Antigravity
+
+| Mốc | Việc làm | Điều kiện hoàn thành |
+|---|---|---|
+| NY0 — Chốt dữ liệu | Kiểm tra lại bảng kiểm kê, đối chiếu PDF các nguồn bất thường, xác nhận phân nhóm | 53 nguồn có trạng thái; chưa xác minh được ghi rõ, không bị bỏ qua |
+| NY1 — Thư viện Drive | Schema tối thiểu, Admin nháp/duyệt, danh mục nhiều lĩnh vực, Mini App tìm/lọc/chi tiết/mở file | 5–10 hồ sơ đã kiểm tra chạy được trên điện thoại |
+| NY2 — Nhập nguồn còn lại | Xử lý trùng/xung đột, nhập có chống lặp, audit, duyệt có chọn lọc | Mọi nguồn có hồ sơ hoặc lý do chờ; không có dữ liệu tự xuất bản |
+| NY3 — Liên kết Thủ tục | Ưu tiên hộ kinh doanh, đất đai, quy hoạch và thủ tục được Trung tâm xác nhận; đối chiếu phụ lục | Thủ tục liên kết đúng nguồn, đúng thẩm quyền và không chứa mục bãi bỏ như dịch vụ đang nhận |
+| NY4 — Vận hành | Tải file, giám sát link, lịch sử phiên bản nguồn, sao lưu và phục hồi | Kiểm thử lỗi và quyền đạt yêu cầu |
+
+Các mốc NY là riêng chức năng này, không thay đổi tên M0/M1/M2 của kế hoạch toàn dự án.
+
+Gợi ý chọn bài thử: nguồn 8 (hộ kinh doanh), 13 (PCCC), 15 (môi trường), 30 (quy hoạch), 3 (TTHC nội bộ) và 21 (quy trình nhiều lĩnh vực). Đây là mẫu kiểm thử khác loại, không phải xác nhận đủ điều kiện công bố hoặc còn hiệu lực. Các nguồn bất thường dùng kiểm thử chặn duyệt, không dùng làm bài công khai đầu tiên.
+
+## 10. Kiểm thử và tiêu chí nghiệm thu
+
+### Dữ liệu
+
+- [ ] Nhập đủ 53 mã nguồn, đúng thứ tự và URL đã chuẩn hóa.
+- [ ] Nhập lại không tạo bản sao.
+- [ ] 42/43 báo trùng văn bản, không tự xóa một PDF.
+- [ ] 22 báo xung đột 4811/5116; không gộp với 24.
+- [ ] 1/31 có cảnh báo ngày cần xác minh.
+- [ ] Một hồ sơ hỗ trợ nhiều lĩnh vực, nhiều loại văn bản và nhiều nguồn.
+- [ ] Số thông báo, số công văn, số quyết định và các ngày không ghi đè nhau.
+
+### Nghiệp vụ
+
+- [ ] Nháp/chờ duyệt/thu hồi không được trả qua API công khai.
+- [ ] Người không đủ quyền không gọi được API duyệt.
+- [ ] Từ khóa “bãi bỏ” không tự làm cả văn bản hết hiệu lực.
+- [ ] Thay đổi thời hạn niêm yết không đổi trạng thái pháp lý.
+- [ ] TTHC nội bộ không xuất hiện thành dịch vụ đặt lịch/lấy số.
+- [ ] Thủ tục cấp tỉnh không tự gắn vào quầy xã.
+- [ ] Thời gian tiếp dân 30 phút không thay thời hạn giải quyết trong nguồn.
+- [ ] Sửa bài đang đăng phải qua quy trình phiên bản/duyệt.
+
+### Hiển thị và mở file
+
+- [ ] Tìm số quyết định và từ khóa tiếng Việt được.
+- [ ] Bộ lọc nhiều lĩnh vực và phân trang đúng.
+- [ ] Không tải PDF ở danh sách.
+- [ ] Link hỏng/thu hồi quyền có thông báo, không trắng trang.
+- [ ] Đọc được qua Drive connector và xem công khai là hai kết quả riêng.
+- [ ] Có kết quả thử Zalo trên điện thoại, ghi rõ thiết bị và phiên bản.
+- [ ] Các module tin tức, thủ tục, lấy số và đặt lịch không bị lỗi hồi quy.
+
+## 11. Chưa thuộc phạm vi bản đầu
+
+- Chép toàn bộ mọi trang PDF thành nội dung bài viết.
+- OCR và trích xuất tự động toàn bộ thủ tục thành dữ liệu đang hoạt động.
+- AI tự quyết định hiệu lực hoặc tự cập nhật dữ liệu pháp lý công khai.
+- Chatbot trả lời thủ tục từ các nguồn chưa xác minh.
+- Đồng bộ/xuất bản tự động khi file Drive đổi nội dung.
+- Gửi thông báo OA hàng loạt.
+- Tạo mới biểu mẫu tiếp nhận phản ánh.
+
+## 12. Báo cáo bàn giao
+
+Sau mỗi mốc, báo cáo:
+- Chức năng đã thực hiện, file và schema thay đổi.
+- Số nguồn đã xử lý, số hồ sơ đã tạo, số bài đã duyệt; không đánh đồng các con số.
+- Kiểm thử thực tế và giới hạn còn lại.
+- Các điểm cần cán bộ xác nhận.
+- Bước tiếp theo và hướng dẫn sử dụng.
+
+Không tuyên bố đã đọc chi tiết toàn bộ phụ lục hoặc xác nhận hiệu lực nếu chưa làm được. Kế hoạch này không thay thế thẩm định nội dung của cán bộ chuyên môn.
+
+## 13. Lệnh giao việc cho Antigravity
+
+> Đọc kế hoạch V2 và bảng kiểm kê 53 nguồn kèm theo. Khảo sát module Niêm yết/Thủ tục đang có, rồi triển khai NY0 và NY1 trước. Giữ mô hình hồ sơ niêm yết gồm nhiều văn bản và nguồn PDF; phân loại riêng công bố TTHC, quy trình nội bộ/điện tử và TTHC nội bộ. Không tự gắn tất cả tài liệu vào bốn quầy xã. Xử lý nguồn 22 xung đột 4811/5116, nguồn 42/43 trùng phần text, và các ngày cần kiểm tra ở nguồn 1/31. Tách trạng thái xuất bản, hiệu lực văn bản và thời hạn niêm yết. Dữ liệu nhập chỉ ở dạng nháp; tiếp tục các phần kỹ thuật độc lập bằng dữ liệu thử. Không thay đổi quyền Drive hoặc xuất bản hàng loạt. Báo cáo kiểm thử trước khi chuyển mốc.
 
-- Các trường của bài niêm yết.
-- Thêm nhiều file bằng Drive hoặc tải từ máy.
-- Đặt tên hiển thị dễ hiểu.
-- Chọn văn bản chính, sắp xếp phụ lục.
-- Cảnh báo thông tin thiếu; cho phép lưu nháp khi chưa hoàn thiện.
-- Xem trước nội dung.
-- Không bắt buộc ảnh đại diện.
-- Khi gửi duyệt, kiểm tra các trường bắt buộc theo nghiệp vụ đã xác nhận.
-
-### 8.3. Nhập hàng loạt
-
-1. Cung cấp mẫu Excel hoặc CSV phù hợp thư viện hiện có, có quy tắc biểu diễn nhiều tài liệu trên một bài.
-2. Đọc và kiểm tra dữ liệu.
-3. Hiển thị dòng hợp lệ, trùng và lỗi.
-4. Cho người quản trị xác nhận các dòng sẽ nhập.
-5. Chỉ tạo bài nháp.
-6. Xuất báo cáo kết quả từng dòng.
-
-Không tự gửi duyệt hoặc xuất bản ngay sau khi nhập. Khi xuất báo cáo CSV/Excel, xử lý dữ liệu có thể bị hiểu là công thức.
-
-## 9. Giai đoạn 6 — Mini App cho người dân
-
-### 9.1. Trang danh sách
-
-- Tiêu đề “Niêm yết công khai”.
-- Tìm theo tên hoặc số văn bản.
-- Bộ lọc lĩnh vực và thời hạn.
-- Thẻ có tiêu đề, cơ quan ban hành, thời gian và số tài liệu.
-- Phân trang hoặc “Xem thêm”, thống nhất ứng dụng.
-- Các trạng thái đang tải, không có kết quả, lỗi kết nối và thử lại.
-- Dùng biểu tượng tài liệu; không phụ thuộc ảnh đại diện.
-
-### 9.2. Trang chi tiết
-
-Thứ tự đề xuất:
-
-1. Tiêu đề và lĩnh vực.
-2. Số văn bản, cơ quan ban hành, ngày ban hành.
-3. Thời gian và trạng thái niêm yết.
-4. Tóm tắt, nội dung.
-5. Văn bản chính và phụ lục.
-6. Đầu mối tiếp nhận ý kiến nếu có.
-
-Không hiển thị thông tin suy đoán khi trường dữ liệu trống. Ưu tiên nút “Xem tài liệu”. Chỉ có nút “Tải xuống” khi luồng được hỗ trợ và đã kiểm tra trên thiết bị. Đối chiếu tài liệu SDK tương ứng phiên bản đang cài trước khi dùng API mở file.
-
-Chưa triển khai biểu mẫu tiếp nhận phản ánh riêng; chỉ hiển thị đầu mối hoặc liên kết đã được đơn vị xác nhận.
-
-## 10. Giai đoạn 7 — Kiểm thử và nghiệm thu
-
-### 10.1. Nội dung và tài liệu
-
-- [ ] Một bài có một file.
-- [ ] Một bài có văn bản chính và nhiều phụ lục đúng thứ tự.
-- [ ] Link Drive công khai mở được trên điện thoại khi không có quyền quản trị.
-- [ ] Link cần quyền có thông báo phù hợp.
-- [ ] File bị xóa, link hỏng hoặc Drive lỗi không làm ứng dụng trắng trang.
-- [ ] PDF và ảnh tải từ máy hiển thị được.
-- [ ] File quá dung lượng, sai định dạng và giả mạo phần mở rộng bị từ chối.
-- [ ] Gỡ một tài liệu không làm mất tài liệu còn được bài khác sử dụng.
-
-### 10.2. Hiển thị và nghiệp vụ
-
-- [ ] Tìm kiếm tiếng Việt, bộ lọc và phân trang đúng.
-- [ ] Nháp, chờ duyệt và bài thu hồi không xuất hiện trong API công khai.
-- [ ] Không truy cập trực tiếp được file nháp bằng người không đủ quyền.
-- [ ] Bài hết hạn tìm thấy trong kho tra cứu.
-- [ ] Kiểm tra biên ngày bắt đầu, hết ngày kết thúc và thiếu thời hạn.
-- [ ] Chỉnh sửa bài đã đăng tuân thủ quy trình duyệt.
-- [ ] Người không đủ quyền không duyệt hoặc thu hồi được bằng API trực tiếp.
-- [ ] Nhập lại danh sách không tạo trùng ngoài ý muốn.
-- [ ] Sửa bài không làm mất quan hệ tài liệu.
-- [ ] Tin tức và các module hiện có vẫn hoạt động.
-
-### 10.3. Thiết bị và môi trường
-
-- Nhập thử 5–10 bài nháp có nhiều loại file và trạng thái.
-- Kiểm tra trên trình duyệt máy tính và trong Zalo trên điện thoại.
-- Nếu có điều kiện, kiểm tra cả Android và iOS; ghi rõ thiết bị nào chưa thử.
-- Backend và file phải truy cập qua HTTPS từ điện thoại.
-- Kiểm tra mạng chậm, lỗi mạng và quay lại ứng dụng sau khi mở tài liệu.
-- Không dùng kết quả thử trên localhost để khẳng định đã chạy tốt trong Zalo.
-
-## 11. Thứ tự ưu tiên và mốc bàn giao
-
-### Mốc NY1 — Bản dùng thử
-
-- Kiểm kê và nhóm 53 link.
-- Schema bài và nhiều tài liệu đính kèm.
-- Quản trị tạo, sửa, duyệt.
-- Mini App tìm kiếm, lọc và mở Drive.
-- Nhập thử 5–10 bài và báo cáo kiểm thử.
-
-### Mốc NY2 — Vận hành đầy đủ
-
-- Tải PDF và ảnh từ máy.
-- Nhập hàng loạt có kiểm tra và chống trùng.
-- Lịch sử chỉnh sửa.
-- Theo dõi thời hạn và link lỗi.
-- Kiểm tra quyền, lưu trữ bền vững và sao lưu.
-- Nhập phần còn lại thành bản nháp sau khi cán bộ xác nhận cách nhóm.
-
-NY1 và NY2 là tên mốc riêng của chức năng này, không thay thế các module M0, M1, M2… trong kế hoạch tổng thể.
-
-### Chưa thuộc phạm vi ban đầu
-
-- OCR toàn bộ tài liệu.
-- Chatbot giải thích văn bản.
-- AI tự xuất bản tóm tắt.
-- Tự đồng bộ mọi thay đổi trên Drive.
-- Gửi thông báo hàng loạt qua OA.
-- Biểu mẫu tiếp nhận phản ánh riêng.
-
-## 12. Công cụ và tài liệu bàn giao
-
-Ưu tiên công cụ dự án đang dùng:
-
-| Công việc | Công cụ hoặc thành phần |
-|---|---|
-| Quản lý thay đổi | Git, nhánh chức năng riêng theo quy trình dự án |
-| Backend | NestJS và cơ chế xác thực/phân quyền hiện có |
-| Dữ liệu | Prisma và MySQL; xác minh schema trước migration |
-| Admin | React và các thành phần biểu mẫu, bảng, tải file hiện có |
-| Mini App | React, ZMP UI, Zalo SDK theo phiên bản thực tế |
-| Kiểm kê | Markdown và Excel/CSV |
-| File | Google Drive và nơi lưu file bền vững của hệ thống |
-| Kiểm thử | Bộ test hiện có, trình duyệt và Zalo trên thiết bị thật |
-
-Không thêm thư viện hoặc dịch vụ trả phí nếu chức năng hiện có đáp ứng được. Nếu cần phụ thuộc mới, nêu mục đích và ảnh hưởng trước khi lựa chọn.
-
-Đề xuất tài liệu bàn giao trong dự án:
-
-- `docs/public-notices/inventory.csv`: kiểm kê nguồn.
-- `docs/public-notices/grouping-proposal.md`: đề xuất nhóm bài và vấn đề cần xác nhận.
-- `docs/public-notices/architecture.md`: schema, API, quyền và luồng file.
-- `docs/public-notices/import-guide.md`: mẫu nhập và hướng dẫn.
-- `docs/public-notices/admin-guide.md`: hướng dẫn cán bộ.
-- `docs/public-notices/test-report.md`: kết quả kiểm thử, giới hạn còn lại.
-
-Các đường dẫn trên là đề xuất, chưa xác nhận đã tồn tại trong repository.
-
-## 13. Báo cáo sau mỗi giai đoạn
-
-Antigravity báo cáo:
-
-1. Chức năng đã hoàn thành.
-2. File, schema và dữ liệu đã thay đổi.
-3. Kiểm thử đã chạy và kết quả thực tế.
-4. Phần chưa kiểm tra hoặc chưa hoàn thành.
-5. Nội dung cần cán bộ xác nhận.
-6. Bước tiếp theo.
-
-Không khẳng định đã đọc, đã nhập, đã kiểm thử hoặc đã triển khai tài liệu nếu chưa thực hiện được.
-
-## 14. Yêu cầu bắt đầu dành cho Antigravity
-
-> Hãy đọc kế hoạch này và khảo sát module niêm yết hiện có. Lập bảng kiểm kê 53 link Drive đã được cung cấp, đề xuất cách nhóm tài liệu và chỉ ra những thông tin thiếu. Đồng thời triển khai phần kỹ thuật không phụ thuộc việc duyệt nội dung bằng dữ liệu thử, theo thứ tự NY1 rồi NY2. Tận dụng cấu trúc dự án và giữ nguyên hoạt động các module khác. Không tự thay đổi quyền Drive, công khai tài liệu hoặc xuất bản bài. Báo cáo bằng chứng kiểm thử sau mỗi giai đoạn; các tài liệu thật được nhập ở trạng thái nháp để cán bộ kiểm tra trước khi duyệt.
