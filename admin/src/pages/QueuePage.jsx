@@ -381,14 +381,14 @@ export default function QueuePage() {
             className={`btn ${tab === "board" ? "btn-primary" : "btn-secondary"}`}
             onClick={() => setTab("board")}
           >
-            🎫 Bảng vận hành quầy
+            Bảng vận hành quầy
           </button>
           {isSuper && (
             <button
               className={`btn ${tab === "config" ? "btn-primary" : "btn-secondary"}`}
               onClick={() => setTab("config")}
             >
-              📅 Lịch phục vụ & Cấu hình quầy
+              Lịch phục vụ & Cấu hình quầy
             </button>
           )}
         </div>
@@ -428,7 +428,7 @@ export default function QueuePage() {
             onClick={() => loadBoard(selectedCounterId, date)}
             disabled={loading || !selectedCounterId}
           >
-            🔄 Làm mới
+            Làm mới
           </button>
 
           {isSuper && counters.length < 4 && (
@@ -438,7 +438,7 @@ export default function QueuePage() {
               disabled={busyAction}
               onClick={handleSetupStandardFourCounters}
             >
-              ⚡ Khởi tạo nhanh 4 Quầy chuẩn (Q1–Q4)
+              Khởi tạo nhanh 4 Quầy chuẩn (Q1–Q4)
             </button>
           )}
 
@@ -450,7 +450,7 @@ export default function QueuePage() {
               onChange={e => setLookupInput(e.target.value)}
               style={{ width: 230 }}
             />
-            <button type="submit" className="btn btn-primary">🔍 Tra mã</button>
+            <button type="submit" className="btn btn-primary">Tra mã</button>
           </form>
         </div>
 
@@ -519,7 +519,7 @@ export default function QueuePage() {
               {isSuper && (
                 <div style={{ marginTop: 12, display: "flex", gap: 8, justifyContent: "center" }}>
                   <button className="btn btn-primary" onClick={handleSetupStandardFourCounters} disabled={busyAction}>
-                    ⚡ Khởi tạo 4 Quầy chuẩn (Q1–Q4)
+                    Khởi tạo 4 Quầy chuẩn (Q1–Q4)
                   </button>
                   <button className="btn btn-secondary" onClick={() => setTab("config")}>
                     Mở cấu hình Lịch phục vụ
@@ -595,7 +595,7 @@ export default function QueuePage() {
                     onClick={() => runAction(() => api.callNextTicket(selectedCounterId), "Đã gọi số tiếp theo")}
                     title="Gọi số tiếp theo trong khung giờ hợp lệ (ưu tiên khung giờ trước -> số thứ tự)"
                   >
-                    📢 Gọi tiếp ({waitingEligibleTickets.length})
+                    Gọi tiếp ({waitingEligibleTickets.length})
                   </button>
                   <button
                     className="btn btn-secondary"
@@ -607,7 +607,7 @@ export default function QueuePage() {
                       )
                     }
                   >
-                    ➕ Cấp số trực tiếp tại quầy
+                    Cấp số trực tiếp tại quầy
                   </button>
                 </div>
               </div>
@@ -615,7 +615,7 @@ export default function QueuePage() {
               {/* Khu vực Số đang gọi / Đang tiếp nhận với đúng bộ nút: Gọi lại, Tiếp nhận, Hoàn tất, Vắng mặt (Mục 7.2) */}
               <div className="card" style={{ padding: 16, marginBottom: 16 }}>
                 <h3 style={{ marginTop: 0, marginBottom: 12 }}>
-                  🔔 Số đang gọi / Đang tiếp nhận tại quầy ({activeTickets.length})
+                  Số đang gọi / Đang tiếp nhận tại quầy ({activeTickets.length})
                 </h3>
                 {activeTickets.length === 0 ? (
                   <p style={{ color: "#6B7280", margin: 0 }}>
@@ -665,7 +665,7 @@ export default function QueuePage() {
                                   disabled={busyAction}
                                   onClick={() => runAction(() => api.recallTicket(t.id), `Đã gọi lại số ${t.displayNumber}`)}
                                 >
-                                  🔁 Gọi lại
+                                  Gọi lại
                                 </button>
                                 <button
                                   className="btn btn-primary"
@@ -674,7 +674,7 @@ export default function QueuePage() {
                                     runAction(() => api.serveTicket(t.id), `Đã tiếp nhận số ${t.displayNumber}`)
                                   }
                                 >
-                                  ▶️ Tiếp nhận
+                                  Tiếp nhận
                                 </button>
                                 <button
                                   className="btn btn-danger"
@@ -686,7 +686,7 @@ export default function QueuePage() {
                                     )
                                   }
                                 >
-                                  🚫 Vắng mặt
+                                  Vắng mặt
                                 </button>
                               </>
                             )}
@@ -698,7 +698,7 @@ export default function QueuePage() {
                                   runAction(() => api.completeTicket(t.id), `Đã hoàn tất lượt ${t.displayNumber}`)
                                 }
                               >
-                                ✅ Hoàn tất
+                                Hoàn tất
                               </button>
                             )}
                             <button
@@ -712,7 +712,7 @@ export default function QueuePage() {
                                 })
                               }
                             >
-                              ↪️ Chuyển quầy
+                              Chuyển quầy
                             </button>
                           </div>
                         </div>
@@ -734,7 +734,7 @@ export default function QueuePage() {
                 {/* Cột 1: Lịch hẹn & số chờ trong khung giờ hiện tại / khung giờ trước chưa gọi */}
                 <div className="card" style={{ padding: 16 }}>
                   <h3 style={{ marginTop: 0, marginBottom: 6 }}>
-                    ⏳ Danh sách chờ gọi trong khung giờ ({waitingEligibleTickets.length})
+                    Danh sách chờ gọi trong khung giờ ({waitingEligibleTickets.length})
                   </h3>
                   <p style={{ fontSize: 12, color: "#6B7280", marginTop: 0, marginBottom: 12 }}>
                     Sắp xếp ưu tiên theo <strong>Khung giờ → Số gọi</strong>. Lượt của khung giờ trước chưa được gọi được giữ ở đầu danh sách và đánh dấu <strong>Chưa được phục vụ</strong>.
@@ -787,7 +787,7 @@ export default function QueuePage() {
                 {/* Cột 2: Nhóm khung giờ sắp tới trong ngày */}
                 <div className="card" style={{ padding: 16 }}>
                   <h3 style={{ marginTop: 0, marginBottom: 6 }}>
-                    📅 Nhóm khung giờ sắp tới ({waitingFutureTickets.length})
+                    Nhóm khung giờ sắp tới ({waitingFutureTickets.length})
                   </h3>
                   <p style={{ fontSize: 12, color: "#6B7280", marginTop: 0, marginBottom: 12 }}>
                     Đã được cấp số gọi ngay khi đặt lịch. Hệ thống không tự động gọi sớm khi chưa đến khung giờ hẹn.
@@ -858,7 +858,7 @@ export default function QueuePage() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))", gap: 16 }}>
                 <div className="card" style={{ padding: 16 }}>
                   <h3 style={{ marginTop: 0, marginBottom: 12 }}>
-                    📋 Đã hoàn tất / Đã hủy / Vắng mặt ({doneTickets.length})
+                    Đã hoàn tất / Đã hủy / Vắng mặt ({doneTickets.length})
                   </h3>
                   {doneTickets.length === 0 ? (
                     <p style={{ color: "#6B7280", margin: 0 }}>Chưa có lượt nào kết thúc trong ngày.</p>
@@ -894,7 +894,7 @@ export default function QueuePage() {
                 </div>
 
                 <div className="card" style={{ padding: 16 }}>
-                  <h3 style={{ marginTop: 0, marginBottom: 12 }}>🕒 Nhật ký sự kiện tại quầy ({events.length})</h3>
+                  <h3 style={{ marginTop: 0, marginBottom: 12 }}>Nhật ký sự kiện tại quầy ({events.length})</h3>
                   {events.length === 0 ? (
                     <p style={{ color: "#6B7280", margin: 0 }}>Chưa có sự kiện nào trong ngày.</p>
                   ) : (
@@ -924,7 +924,7 @@ export default function QueuePage() {
           <div className="card" style={{ padding: 16, background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
               <div>
-                <h3 style={{ margin: 0 }}>🏛 4 Quầy phục vụ theo lĩnh vực đã xác nhận của Trung tâm</h3>
+                <h3 style={{ margin: 0 }}>4 Quầy phục vụ theo lĩnh vực đã xác nhận của Trung tâm</h3>
                 <p style={{ fontSize: 13, color: "#475569", margin: "4px 0 0 0" }}>
                   Quầy 1: Tư pháp – hộ tịch • Quầy 2: Kinh doanh – môi trường • Quầy 3: Đất đai – quy hoạch • Quầy 4: Văn hóa – giáo dục – y tế – LĐTBXH (Mặc định <strong>30 phút/lượt</strong>).
                 </p>
@@ -935,7 +935,7 @@ export default function QueuePage() {
                 disabled={busyAction}
                 onClick={handleSetupStandardFourCounters}
               >
-                ⚡ Khởi tạo / Đồng bộ 4 Quầy chuẩn (Q1–Q4)
+                Khởi tạo / Đồng bộ 4 Quầy chuẩn (Q1–Q4)
               </button>
             </div>
           </div>
@@ -946,7 +946,7 @@ export default function QueuePage() {
               {liveCapacityPreview && (
                 <div className="card" style={{ padding: 16, background: "#EFF6FF", border: "1px solid #BFDBFE" }}>
                   <h3 style={{ marginTop: 0, marginBottom: 8, color: "#1E3A8A" }}>
-                    📊 Bảng tính tự động năng lực phục vụ — Quầy {selectedCounterObj.code} ({selectedCounterObj.name})
+                    Bảng tính tự động năng lực phục vụ — Quầy {selectedCounterObj.code} ({selectedCounterObj.name})
                   </h3>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
                     <div style={{ background: "#FFFFFF", padding: 12, borderRadius: 8 }}>
@@ -995,7 +995,7 @@ export default function QueuePage() {
               {/* Cấu hình theo quầy (Mục 9.1) */}
               <form onSubmit={handleSaveCounterConfig} className="card" style={{ padding: 16 }}>
                 <h3 style={{ marginTop: 0 }}>
-                  ⚙️ Cấu hình Lịch phục vụ — Quầy {selectedCounterObj.code} ({selectedCounterObj.name})
+                  Cấu hình Lịch phục vụ — Quầy {selectedCounterObj.code} ({selectedCounterObj.name})
                 </h3>
                 <p style={{ fontSize: 13, color: "#6B7280", marginTop: 0 }}>
                   Hệ thống tự động chặn nếu giảm số vị trí tiếp nhận hoặc trần đặt lịch online xuống thấp hơn số lịch người dân đã đặt.
@@ -1174,7 +1174,7 @@ export default function QueuePage() {
                 </div>
 
                 <button type="submit" className="btn btn-primary">
-                  💾 Lưu cấu hình quầy
+                  Lưu cấu hình quầy
                 </button>
               </form>
 
@@ -1191,7 +1191,7 @@ export default function QueuePage() {
                   }}
                 >
                   <div>
-                    <h3 style={{ margin: 0 }}>🕒 Ngày làm việc & Giờ nhận lịch buổi sáng / buổi chiều</h3>
+                    <h3 style={{ margin: 0 }}>Ngày làm việc & Giờ nhận lịch buổi sáng / buổi chiều</h3>
                     <p style={{ fontSize: 12, color: "#6B7280", margin: "4px 0 0 0" }}>
                       Hệ thống tự động chia thành các khung giờ {configForm.slotMinutes || 30} phút trong từng buổi.
                     </p>
@@ -1202,7 +1202,7 @@ export default function QueuePage() {
                       className="btn btn-secondary"
                       onClick={handleApplyStandardWeekdaySchedule}
                     >
-                      ⚡ Điền nhanh Thứ 2 – Thứ 6 (07:30–11:30 & 13:30–17:00)
+                      Điền nhanh Thứ 2 – Thứ 6 (07:30–11:30 & 13:30–17:00)
                     </button>
                     <button
                       type="button"
@@ -1275,14 +1275,14 @@ export default function QueuePage() {
                   </div>
                 )}
                 <button type="button" className="btn btn-primary" onClick={handleSaveSchedules}>
-                  💾 Lưu giờ hoạt động
+                  Lưu giờ hoạt động
                 </button>
               </div>
 
               {/* Ngoại lệ theo ngày & Phân công cán bộ (Mục 9.3) */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 16 }}>
                 <div className="card" style={{ padding: 16 }}>
-                  <h3 style={{ marginTop: 0 }}>🏖️ Ngoại lệ theo ngày (Tạm dừng nhận lịch mới / Nghỉ lễ)</h3>
+                  <h3 style={{ marginTop: 0 }}>Ngoại lệ theo ngày (Tạm dừng nhận lịch mới / Nghỉ lễ)</h3>
                   <p style={{ fontSize: 12, color: "#6B7280", marginTop: 0 }}>
                     Khi tạm dừng một ngày đã có người đặt lịch: hệ thống <strong>khóa nhận lịch mới</strong> nhưng <strong>không tự động hủy ngầm</strong> các lịch đã được cấp số.
                   </p>
@@ -1325,7 +1325,7 @@ export default function QueuePage() {
                 </div>
 
                 <div className="card" style={{ padding: 16 }}>
-                  <h3 style={{ marginTop: 0 }}>👤 Phân công cán bộ phụ trách quầy</h3>
+                  <h3 style={{ marginTop: 0 }}>Phân công cán bộ phụ trách quầy</h3>
                   <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
                     {staffCandidates.map(adm => {
                       const checked = selectedStaffIds.includes(adm.id);
@@ -1347,7 +1347,7 @@ export default function QueuePage() {
                     })}
                   </div>
                   <button type="button" className="btn btn-primary" onClick={handleSaveStaff}>
-                    💾 Lưu phân công cán bộ
+                    Lưu phân công cán bộ
                   </button>
                 </div>
               </div>
@@ -1356,7 +1356,7 @@ export default function QueuePage() {
 
           {/* Tạo thêm quầy tùy chỉnh (nếu cần ngoài 4 quầy chuẩn) */}
           <div className="card" style={{ padding: 16 }}>
-            <h3 style={{ marginTop: 0 }}>➕ Tạo thêm quầy phục vụ</h3>
+            <h3 style={{ marginTop: 0 }}>Tạo thêm quầy phục vụ</h3>
             <form
               onSubmit={handleCreateCounter}
               style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}

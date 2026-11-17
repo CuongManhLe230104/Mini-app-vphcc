@@ -668,6 +668,7 @@ export default function NoticesPage() {
   const [sourceQualityFilter, setSourceQualityFilter] = useState("");
 
   const [modal, setModal] = useState(null);
+  const [previewNotice, setPreviewNotice] = useState(null);
   const [sourceModal, setSourceModal] = useState(null);
 
   const limit = 15;
@@ -796,7 +797,7 @@ export default function NoticesPage() {
           >
             {importing
               ? "Đang đồng bộ..."
-              : "📥 Đồng bộ 53 nguồn Drive & Mở 6 mẫu chuẩn"}
+              : "Đồng bộ 53 nguồn Drive & Mở 6 mẫu chuẩn"}
           </button>
           <button
             type="button"
@@ -870,7 +871,7 @@ export default function NoticesPage() {
                     <th>Xuất bản</th>
                     <th>Hiệu lực pháp lý</th>
                     <th>Tệp / TTHC</th>
-                    <th style={{ width: 170 }}>Thao tác</th>
+                    <th style={{ width: 220 }}>Thao tác</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -886,7 +887,6 @@ export default function NoticesPage() {
                     <tr>
                       <td colSpan={7}>
                         <div className="empty-state">
-                          <div className="empty-state-icon">📌</div>
                           <div>
                             Chưa có hồ sơ niêm yết. Nhấn &ldquo;Đồng bộ 53 nguồn
                             Drive&rdquo; để khởi tạo kho kiểm kê.
@@ -932,7 +932,7 @@ export default function NoticesPage() {
                                   marginTop: 2,
                                 }}
                               >
-                                ⚠️ {n.verificationNote || "Cần đối chiếu bản gốc"}
+                                {n.verificationNote || "Cần đối chiếu bản gốc"}
                               </div>
                             )}
                           </td>
@@ -972,33 +972,38 @@ export default function NoticesPage() {
                             </div>
                           </td>
                           <td>
-                            <div
-                              style={{
-                                display: canWrite ? "flex" : "none",
-                                gap: 4,
-                                flexWrap: "wrap",
-                              }}
-                            >
+                            <div className="table-actions">
                               <button
                                 className="btn btn-ghost btn-sm"
-                                onClick={() => setModal({ item: n })}
+                                onClick={() => setPreviewNotice(n)}
                               >
-                                ✏️ Sửa
+                                Xem
                               </button>
-                              {n.publicationStatus !== "PUBLISHED" ? (
-                                <button
-                                  className="btn btn-primary btn-sm"
-                                  onClick={() => handlePublish(n)}
-                                >
-                                  Duyệt đăng
-                                </button>
-                              ) : (
-                                <button
-                                  className="btn btn-ghost btn-sm"
-                                  onClick={() => handleRevoke(n)}
-                                >
-                                  Thu hồi
-                                </button>
+                              {canWrite && (
+                                <>
+                                  {n.publicationStatus !== "PUBLISHED" && (
+                                    <button
+                                      className="btn btn-success btn-sm"
+                                      onClick={() => handlePublish(n)}
+                                    >
+                                      Duyệt
+                                    </button>
+                                  )}
+                                  {n.publicationStatus !== "REVOKED" && (
+                                    <button
+                                      className="btn btn-danger btn-sm"
+                                      onClick={() => handleRevoke(n)}
+                                    >
+                                      Xóa
+                                    </button>
+                                  )}
+                                  <button
+                                    className="btn btn-ghost btn-sm"
+                                    onClick={() => setModal({ item: n })}
+                                  >
+                                    Sửa
+                                  </button>
+                                </>
                               )}
                             </div>
                           </td>
@@ -1153,22 +1158,22 @@ export default function NoticesPage() {
                             {src.notice ? (
                               <span>
                                 {src.notice.publicationStatus === "PUBLISHED"
-                                  ? "✅ Đã công khai"
-                                  : "📝 Bản nháp"}
+                                  ? "Đã công khai"
+                                  : "Bản nháp"}
                               </span>
                             ) : (
                               "—"
                             )}
                           </td>
                           <td>
-                            <div style={{ display: "flex", gap: 6 }}>
+                            <div className="table-actions">
                               <a
                                 href={src.originalUrl}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="btn btn-ghost btn-sm"
                               >
-                                PDF ↗
+                                Xem
                               </a>
                               {canWrite && (
                                 <button
@@ -1176,7 +1181,7 @@ export default function NoticesPage() {
                                   className="btn btn-ghost btn-sm"
                                   onClick={() => setSourceModal(src)}
                                 >
-                                  Đối chiếu
+                                  Sửa
                                 </button>
                               )}
                             </div>
@@ -1190,6 +1195,75 @@ export default function NoticesPage() {
             </div>
           </div>
         </>
+      )}
+
+      {previewNotice && (
+        <div
+          className="modal-overlay"
+          onClick={(e) => e.target === e.currentTarget && setPreviewNotice(null)}
+        >
+          <div className="modal modal-lg">
+            <div className="modal-header">
+              <div className="modal-title">Chi tiết văn bản niêm yết công khai</div>
+              <button className="modal-close" onClick={() => setPreviewNotice(null)}>
+                ×
+              </button>
+            </div>
+            <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div>
+                <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)" }}>Tiêu đề niêm yết</div>
+                <div style={{ fontWeight: 700, fontSize: "var(--font-size-lg)" }}>{previewNotice.title}</div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)" }}>Số hiệu Quyết định</div>
+                  <div style={{ fontFamily: "var(--font-mono)", fontWeight: 600 }}>{previewNotice.legalDocumentNumber || "—"}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)" }}>Ngày ban hành</div>
+                  <div>{previewNotice.citedDateText || fmtDate(previewNotice.legalDocumentDate) || "—"}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)" }}>Cơ quan ban hành</div>
+                  <div>{previewNotice.issuingAuthority || "—"}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)" }}>Cơ quan quản lý lĩnh vực</div>
+                  <div>{previewNotice.managingAuthority || "—"}</div>
+                </div>
+              </div>
+              {previewNotice.summary && (
+                <div>
+                  <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)" }}>Tóm tắt Điều 1 / Phạm vi</div>
+                  <div style={{ whiteSpace: "pre-wrap", marginTop: 4 }}>{previewNotice.summary}</div>
+                </div>
+              )}
+              {previewNotice.description && (
+                <div>
+                  <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)" }}>Nội dung chi tiết</div>
+                  <div style={{ whiteSpace: "pre-wrap", marginTop: 4 }}>{previewNotice.description}</div>
+                </div>
+              )}
+              {(previewNotice.documents || []).length > 0 && (
+                <div>
+                  <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)", marginBottom: 4 }}>Tệp văn bản đính kèm</div>
+                  <ul style={{ paddingLeft: 18, margin: 0 }}>
+                    {previewNotice.documents.map((doc, idx) => (
+                      <li key={idx} style={{ marginBottom: 4 }}>
+                        <a href={doc.fileUrl} target="_blank" rel="noreferrer">{doc.name}</a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={() => setPreviewNotice(null)}>
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {modal && (

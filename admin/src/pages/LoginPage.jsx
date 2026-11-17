@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "../contexts/ToastContext";
+import logoHcc from "../assets/logo_hcc.png";
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -28,7 +29,11 @@ export default function LoginPage() {
     <div className="login-page">
       <div className="login-box">
         <div className="login-header">
-          <span className="login-icon">🏛️</span>
+          <img
+            src={logoHcc}
+            alt="Logo Trung tâm PVHCC"
+            style={{ width: 64, height: 64, objectFit: "contain", margin: "0 auto 12px", display: "block" }}
+          />
           <div className="login-title">Cổng Quản trị</div>
           <div className="login-sub">Trung tâm PVHCC xã Nghĩa Thành</div>
         </div>

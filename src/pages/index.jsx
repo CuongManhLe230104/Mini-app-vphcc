@@ -18,18 +18,10 @@ const HOTLINE_CONTACTS = [
   {
     number: "02543979999",
     display: "0254 3979 999",
-    label: "Điện thoại bàn Trung tâm",
-    sublabel: "Số máy bàn trực tiếp tại Trung tâm",
-    icon: "zi-call",
-    iconBg: "bg-red-50 text-red-600",
   },
   {
     number: "0937064147",
     display: "0937 064 147",
-    label: "Số điện thoại cán bộ Trung tâm",
-    sublabel: "Số di động hỗ trợ của cán bộ tại Trung tâm",
-    icon: "zi-user",
-    iconBg: "bg-blue-50 text-blue-600",
   },
 ];
 
@@ -322,16 +314,16 @@ function HomePage() {
       {/* Hộp chọn gọi 1 trong 2 số Hotline của Trung tâm */}
       {showHotlineModal && (
         <div
-          className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-4"
+          className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-5"
           onClick={() => setShowHotlineModal(false)}
         >
           <div
-            className="w-full max-w-md bg-white rounded-2xl p-5 space-y-3 shadow-xl"
+            className="w-full max-w-sm bg-white rounded-2xl p-5 space-y-3 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
-              <Text className="text-gray-900 font-bold text-base">
-                Gọi Hotline Trung tâm
+              <Text className="text-gray-900 font-bold text-lg">
+                Hotline
               </Text>
               <button
                 type="button"
@@ -341,34 +333,25 @@ function HomePage() {
                 <Icon icon="zi-close" size={18} />
               </button>
             </div>
-            <Text className="text-gray-500 text-xs">
-              Chọn số điện thoại bạn muốn gọi trực tiếp:
-            </Text>
 
             <div className="space-y-2.5 pt-1">
               {HOTLINE_CONTACTS.map((item) => (
                 <button
                   key={item.number}
                   type="button"
-                  className="w-full p-3.5 rounded-xl border border-gray-200 bg-gray-50/70 flex items-center gap-3 text-left active:opacity-75"
-                  style={{ minHeight: 60 }}
+                  className="w-full p-3.5 rounded-xl border border-gray-200 bg-gray-50/70 flex items-center justify-between gap-3 text-left active:opacity-75"
+                  style={{ minHeight: 54 }}
                   onClick={() => {
                     setShowHotlineModal(false);
                     runZaloAction(() => callHotline(item.number));
                   }}
                 >
-                  <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${item.iconBg}`}>
-                    <Icon icon={item.icon} size={22} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <Text className="text-gray-900 font-bold text-base leading-snug">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center flex-shrink-0">
+                      <Icon icon="zi-call" size={20} />
+                    </div>
+                    <Text className="text-gray-900 font-bold text-base">
                       {item.display}
-                    </Text>
-                    <Text className="text-gray-700 font-medium text-xs mt-0.5">
-                      {item.label}
-                    </Text>
-                    <Text className="text-gray-400 text-xs">
-                      {item.sublabel}
                     </Text>
                   </div>
                   <div className="px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg flex items-center gap-1">

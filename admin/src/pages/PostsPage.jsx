@@ -12,9 +12,9 @@ const STATUS_MAP = {
 };
 
 const TYPE_MAP = {
-  NEWS:  { label: "Tin tức",    icon: "📰" },
-  GUIDE: { label: "Hướng dẫn", icon: "📖" },
-  VIDEO: { label: "Video",     icon: "🎬" },
+  NEWS:  { label: "Tin tức" },
+  GUIDE: { label: "Hướng dẫn" },
+  VIDEO: { label: "Video" },
 };
 
 function PostBadge({ status }) {
@@ -97,7 +97,7 @@ function PostFormModal({ item, onClose, onSaved }) {
                 <label className="form-label required">Loại bài</label>
                 <select className="form-select" value={form.type} onChange={set("type")}>
                   {Object.entries(TYPE_MAP).map(([k, v]) => (
-                    <option key={k} value={k}>{v.icon} {v.label}</option>
+                    <option key={k} value={k}>{v.label}</option>
                   ))}
                 </select>
               </div>
@@ -259,7 +259,7 @@ export default function PostsPage() {
           </select>
           <select className="form-select" style={{ width: 150 }} value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setPage(1); }}>
             <option value="">Tất cả loại</option>
-            {Object.entries(TYPE_MAP).map(([k, v]) => <option key={k} value={k}>{v.icon} {v.label}</option>)}
+            {Object.entries(TYPE_MAP).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
         </div>
         <div className="page-toolbar-right">
@@ -289,14 +289,14 @@ export default function PostsPage() {
               {loading ? (
                 <tr><td colSpan={6}><div className="loading-full"><span className="spinner" /> Đang tải...</div></td></tr>
               ) : posts.length === 0 ? (
-                <tr><td colSpan={6}><div className="empty-state"><div className="empty-state-icon">📰</div><div>Chưa có bài viết nào</div></div></td></tr>
+                <tr><td colSpan={6}><div className="empty-state"><div>Chưa có bài viết nào</div></div></td></tr>
               ) : posts.map(p => (
                 <tr key={p.id}>
                   <td style={{ maxWidth: 300 }}>
                     <div className="truncate" title={p.title} style={{ fontWeight: 500 }}>{p.title}</div>
-                    {p.isHighlighted && <span className="badge badge-primary" style={{ marginTop: 4 }}>⭐ Nổi bật</span>}
+                    {p.isHighlighted && <span className="badge badge-primary" style={{ marginTop: 4 }}>Nổi bật</span>}
                   </td>
-                  <td>{TYPE_MAP[p.type]?.icon} {TYPE_MAP[p.type]?.label}</td>
+                  <td>{TYPE_MAP[p.type]?.label || p.type}</td>
                   <td><PostBadge status={p.status} />{p.revisionStatus && <div>Bản sửa: <PostBadge status={p.revisionStatus} /></div>}{p.rejectionNote && <div>{p.rejectionNote}</div>}</td>
                   <td style={{ fontSize: "var(--font-size-sm)" }}>{p.author?.fullName || "—"}</td>
                   <td style={{ fontSize: "var(--font-size-sm)", whiteSpace: "nowrap" }}>{fmtDate(p.createdAt)}</td>
@@ -305,16 +305,16 @@ export default function PostsPage() {
                       <button className="btn btn-ghost btn-sm" onClick={() => setModal({ type: "preview", item: p })}>Xem</button>
                       {isEditor && (user?.role === "SUPER_ADMIN" || (p.revisionAuthorId || p.authorId) === user?.id) && ["DRAFT", "REJECTED"].includes(p.revisionStatus || p.status) && (
                         <button className="btn btn-ghost btn-sm" onClick={() => action(() => api.submitPost(p.id, p.version), "Đã gửi duyệt")}>
-                          📨 Gửi duyệt
+                          Gửi duyệt
                         </button>
                       )}
                       {isReviewer && (p.revisionStatus || p.status) === "PENDING" && <>
                         <button className="btn btn-success btn-sm" onClick={() => action(() => api.publishPost(p.id, p.version), "Đã xuất bản")}>
-                          ✓ Duyệt
+                          Duyệt
                         </button>
                         <button className="btn btn-ghost btn-sm" style={{ color: "var(--danger)" }}
                           onClick={() => setModal({ type: "reject", item: p })}>
-                          ✕ Từ chối
+                          Từ chối
                         </button>
                       </>}
                       {isReviewer && p.status !== "ARCHIVED" && (
@@ -324,7 +324,7 @@ export default function PostsPage() {
                       )}
                       {isEditor && !["ARCHIVED", "PENDING"].includes(p.revisionStatus || p.status) && (user?.role === "SUPER_ADMIN" || (p.revisionAuthorId || p.authorId) === user?.id) && (
                         <button className="btn btn-ghost btn-sm" onClick={() => setModal({ type: "form", item: p })}>
-                          ✏️
+                          Sửa
                         </button>
                       )}
                     </div>

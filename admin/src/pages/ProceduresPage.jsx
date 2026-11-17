@@ -149,7 +149,6 @@ function ConfirmDelete({ item, onClose, onDeleted }) {
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
         <div className="modal-body">
-          <div className="confirm-icon">⚠️</div>
           <div className="confirm-message" style={{ fontWeight: 600 }}>Xóa thủ tục này?</div>
           <div className="confirm-sub" style={{ marginTop: 8 }}>"{item?.name}"</div>
           <div className="confirm-sub" style={{ marginTop: 4 }}>Thao tác này không thể hoàn tác.</div>
@@ -244,7 +243,7 @@ export default function ProceduresPage() {
                 <th>Thời hạn</th>
                 <th>Lệ phí</th>
                 <th>Trạng thái</th>
-                <th style={{ width: 120 }}>Thao tác</th>
+                <th style={{ width: 180 }}>Thao tác</th>
               </tr>
             </thead>
             <tbody>
@@ -254,7 +253,7 @@ export default function ProceduresPage() {
                 </td></tr>
               ) : procedures.length === 0 ? (
                 <tr><td colSpan={7}>
-                  <div className="empty-state"><div className="empty-state-icon">📋</div><div>Chưa có thủ tục nào</div></div>
+                  <div className="empty-state"><div>Chưa có thủ tục nào</div></div>
                 </td></tr>
               ) : procedures.map(p => (
                 <tr key={p.id}>
@@ -268,17 +267,24 @@ export default function ProceduresPage() {
                   <td>{p.fee}</td>
                   <td><ProcBadge isValid={p.isValid} /></td>
                   <td>
-                    <div className="table-actions" style={{ display: canWrite ? undefined : "none" }}>
+                    <div className="table-actions">
                       <button
                         className="btn btn-ghost btn-sm"
-                        onClick={() => setModal({ type: "form", item: p })}
-                      >✏️</button>
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        style={{ color: "var(--danger)" }}
-                        disabled={user?.role !== "SUPER_ADMIN" || !p.isValid}
-                        onClick={() => setModal({ type: "delete", item: p })}
-                      >🗑</button>
+                        onClick={() => setModal({ type: "preview", item: p })}
+                      >Xem</button>
+                      {canWrite && (
+                        <>
+                          <button
+                            className="btn btn-danger btn-sm"
+                            disabled={user?.role !== "SUPER_ADMIN" || !p.isValid}
+                            onClick={() => setModal({ type: "delete", item: p })}
+                          >Xóa</button>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => setModal({ type: "form", item: p })}
+                          >Sửa</button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -299,6 +305,69 @@ export default function ProceduresPage() {
       </div>
 
       {/* Modals */}
+      {modal?.type === "preview" && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModal(null)}>
+          <div className="modal modal-lg">
+            <div className="modal-header">
+              <div className="modal-title">Chi tiết thủ tục hành chính</div>
+              <button className="modal-close" onClick={() => setModal(null)}>×</button>
+            </div>
+            <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div>
+                <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)" }}>Tên thủ tục</div>
+                <div style={{ fontWeight: 700, fontSize: "var(--font-size-lg)" }}>{modal.item.name}</div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)" }}>Mã thủ tục</div>
+                  <div style={{ fontFamily: "var(--font-mono)", fontWeight: 600 }}>{modal.item.code || "—"}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)" }}>Lĩnh vực</div>
+                  <div style={{ fontWeight: 600 }}>{fieldMap[modal.item.fieldId] || modal.item.field?.label || "—"}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)" }}>Cơ quan thực hiện</div>
+                  <div>{modal.item.authority || "—"}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)" }}>Thời hạn giải quyết</div>
+                  <div>{modal.item.deadline || "—"}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)" }}>Lệ phí</div>
+                  <div>{modal.item.fee || "—"}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)" }}>Trạng thái</div>
+                  <div><ProcBadge isValid={modal.item.isValid} /></div>
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)", marginBottom: 4 }}>Thành phần hồ sơ</div>
+                <ul style={{ paddingLeft: 18, margin: 0 }}>
+                  {(Array.isArray(modal.item.components) ? modal.item.components : []).map((c, idx) => (
+                    <li key={idx} style={{ marginBottom: 4 }}>{c}</li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)" }}>Cách thức nộp</div>
+                <div>{modal.item.submission || "—"}</div>
+              </div>
+              {modal.item.sourceUrl && (
+                <div>
+                  <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)" }}>Đường dẫn Cổng DVC</div>
+                  <a href={modal.item.sourceUrl} target="_blank" rel="noreferrer">{modal.item.sourceUrl}</a>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={() => setModal(null)}>Đóng</button>
+            </div>
+          </div>
+        </div>
+      )}
       {modal?.type === "form" && (
         <ProcedureModal item={modal.item} fields={fields} onClose={() => setModal(null)} onSaved={handleSaved} />
       )}

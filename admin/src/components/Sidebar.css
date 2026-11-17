@@ -23,15 +23,24 @@
 }
 
 .sidebar-brand-icon {
-  font-size: 24px;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
+  padding: 2px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--primary-light);
+  background: #ffffff;
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.sidebar-brand-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 
 .sidebar-brand-name {
@@ -60,9 +69,9 @@
 .sidebar-nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
+  padding: 10px 14px;
   border-radius: var(--radius);
+  border-left: 3px solid transparent;
   color: var(--text-secondary);
   text-decoration: none;
   font-size: var(--font-size-base);
@@ -79,6 +88,7 @@
 
 .sidebar-nav-item.active {
   background: var(--primary-light);
+  border-left-color: var(--primary);
   color: var(--primary);
   font-weight: 600;
 }
@@ -140,12 +150,13 @@
 }
 
 .sidebar-logout-btn {
-  background: none;
-  border: none;
-  padding: 6px;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  padding: 5px 10px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 18px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
   color: var(--text-secondary);
   transition: all var(--transition);
   flex-shrink: 0;
