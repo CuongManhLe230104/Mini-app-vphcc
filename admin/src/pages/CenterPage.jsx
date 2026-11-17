@@ -84,7 +84,7 @@ export default function CenterPage() {
         {/* Thông tin cơ bản */}
         <div className="card" style={{ gridColumn: "1 / -1" }}>
           <div className="card-header">
-            <div className="card-title">🏛️ Thông tin cơ bản</div>
+            <div className="card-title">Thông tin cơ bản</div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             <div className="form-group">
@@ -109,7 +109,7 @@ export default function CenterPage() {
         {/* Kênh kết nối */}
         <div className="card">
           <div className="card-header">
-            <div className="card-title">🔗 Kênh kết nối</div>
+            <div className="card-title">Kênh kết nối</div>
           </div>
           <div className="form-group">
             <label className="form-label">Zalo OA ID</label>
@@ -129,7 +129,7 @@ export default function CenterPage() {
         {/* Giờ làm việc */}
         <div className="card">
           <div className="card-header">
-            <div className="card-title">⏰ Giờ làm việc</div>
+            <div className="card-title">Giờ làm việc</div>
           </div>
           <div className="form-group">
             <label className="form-label">Lịch làm việc</label>
@@ -148,16 +148,16 @@ export default function CenterPage() {
         {center && (
           <div className="card" style={{ gridColumn: "1 / -1" }}>
             <div className="card-header">
-              <div className="card-title">👁 Xem trước hiển thị</div>
+              <div className="card-title">Xem trước hiển thị</div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16 }}>
               {[
-                { icon: "🏛️", label: "Tên", value: center.name },
-                { icon: "📞", label: "Hotline", value: center.hotline },
-                { icon: "📍", label: "Địa chỉ", value: center.address },
+                { label: "Tên đơn vị", value: center.name },
+                { label: "Hotline", value: center.hotline },
+                { label: "Địa chỉ", value: center.address },
               ].map(item => (
                 <div key={item.label} style={{ padding: 12, background: "var(--bg-base)", borderRadius: "var(--radius)", border: "1px solid var(--border)" }}>
-                  <div style={{ fontSize: "var(--font-size-sm)", color: "var(--text-secondary)", marginBottom: 4 }}>{item.icon} {item.label}</div>
+                  <div style={{ fontSize: "var(--font-size-sm)", color: "var(--text-secondary)", marginBottom: 4 }}>{item.label}</div>
                   <div style={{ fontWeight: 600 }}>{item.value || "—"}</div>
                 </div>
               ))}
@@ -173,7 +173,7 @@ export default function CenterPage() {
             </p>
           )}
           <button type="submit" className="btn btn-primary btn-lg" disabled={saving || !isSuperAdmin}>
-            {saving ? <><span className="spinner" style={{ width: 16, height: 16 }} /> Đang lưu...</> : "💾 Lưu thay đổi"}
+            {saving ? <><span className="spinner" style={{ width: 16, height: 16 }} /> Đang lưu...</> : "Lưu thay đổi"}
           </button>
         </div>
       </div>

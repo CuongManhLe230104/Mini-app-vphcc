@@ -79,15 +79,13 @@ function AccountPage() {
           <ActionRow
             icon="zi-call"
             iconBg="bg-red-100"
-            label="Điện thoại bàn Trung tâm"
-            sublabel="0254 3979 999 — Bấm để gọi trực tiếp"
+            label="Hotline: 0254 3979 999"
             onClick={() => handleHotline(LANDLINE_HOTLINE)}
           />
           <ActionRow
-            icon="zi-user"
+            icon="zi-call"
             iconBg="bg-green-100"
-            label="Số điện thoại cán bộ Trung tâm"
-            sublabel="0937 064 147 — Bấm để gọi trực tiếp"
+            label="Hotline: 0937 064 147"
             onClick={() => handleHotline(STAFF_HOTLINE)}
           />
           <ActionRow

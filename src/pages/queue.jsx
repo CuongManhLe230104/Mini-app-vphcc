@@ -6,6 +6,9 @@ import { useApiResource } from "../components/use-api-resource";
 import { api } from "../services/api";
 import { getZaloAccessToken } from "../services/zalo";
 
+/** Bật cờ này để hiển thị trạng thái "Đang phát triển" cho chức năng Đặt lịch & Nhận số */
+const QUEUE_UNDER_DEVELOPMENT = true;
+
 const SAVED_CODES_KEY = "nt_queue_lookup_codes";
 const CITIZEN_JWT_KEY = "nt_citizen_jwt";
 const CITIZEN_SESSION_KEY = "nt_citizen_session_key";
@@ -137,7 +140,54 @@ function normalizeTabParam(rawTab) {
   return "book";
 }
 
+function QueueUnderDevelopmentScreen() {
+  return (
+    <Page className="bg-gray-50 page-with-header">
+      <Header title="Đặt lịch & Nhận số" showBackIcon />
+
+      <div className="px-4 pt-5 pb-24 space-y-4">
+        <Box className="bg-white rounded-2xl p-6 shadow-sm text-center space-y-4 border border-amber-100">
+          <div className="w-16 h-16 mx-auto rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
+            <Icon icon="zi-clock-1" size={32} />
+          </div>
+
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-bold">
+            <Icon icon="zi-info-circle" size={14} />
+            <span>Chức năng đang phát triển</span>
+          </div>
+
+          <div className="space-y-2">
+            <Text className="text-gray-900 font-bold text-lg leading-snug">
+              Đặt lịch & Nhận số trực tuyến đang được phát triển
+            </Text>
+            <Text className="text-gray-600 text-base leading-relaxed">
+              Trung tâm Phục vụ hành chính công xã Nghĩa Thành đang hoàn thiện và đồng bộ hệ thống đặt lịch hẹn, cấp số thứ tự trực tuyến tại các quầy tiếp nhận.
+            </Text>
+          </div>
+
+          <div className="p-3.5 bg-blue-50 border border-blue-100 rounded-xl text-left text-sm text-blue-900 space-y-1.5">
+            <div className="font-bold">Hướng dẫn trong thời gian nâng cấp:</div>
+            <div>
+              • Người dân vui lòng đến trực tiếp Trung tâm trong giờ hành chính để được hướng dẫn và tiếp nhận hồ sơ.
+            </div>
+            <div>
+              • Hoặc tra cứu thủ tục, nộp hồ sơ trực tuyến trên Cổng Dịch vụ công Quốc gia ngay tại ứng dụng.
+            </div>
+          </div>
+        </Box>
+      </div>
+    </Page>
+  );
+}
+
 export default function QueuePage() {
+  if (QUEUE_UNDER_DEVELOPMENT) {
+    return <QueueUnderDevelopmentScreen />;
+  }
+  return <QueueBookingFlowPage />;
+}
+
+function QueueBookingFlowPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { openSnackbar } = useSnackbar();
 

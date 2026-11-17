@@ -1,16 +1,17 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import logoHcc from "../assets/logo_hcc.png";
 import "./Sidebar.css";
 
 const NAV_ITEMS = [
-  { to: "/",           label: "Tổng quan",       icon: "📊", exact: true },
-  { to: "/queue",      label: "Đặt lịch & Cấp số", icon: "🎫", roles: ["SUPER_ADMIN", "COUNTER_STAFF"] },
-  { to: "/procedures", label: "Thủ tục HC",      icon: "📋" },
-  { to: "/posts",      label: "Tin tức & Hướng dẫn", icon: "📰" },
-  { to: "/notices",    label: "Niêm yết",         icon: "📌" },
-  { to: "/faqs",       label: "Câu hỏi thường gặp", icon: "❓" },
-  { to: "/center",     label: "Thông tin trung tâm", icon: "🏛️" },
-  { to: "/audit", label: "Nhật ký thao tác", icon: "🕒", role: "SUPER_ADMIN" },
+  { to: "/",           label: "Tổng quan",             exact: true },
+  { to: "/queue",      label: "Đặt lịch & Cấp số",     roles: ["SUPER_ADMIN", "COUNTER_STAFF"] },
+  { to: "/procedures", label: "Thủ tục hành chính" },
+  { to: "/posts",      label: "Tin tức & Hướng dẫn" },
+  { to: "/notices",    label: "Niêm yết công khai" },
+  { to: "/faqs",       label: "Câu hỏi thường gặp" },
+  { to: "/center",     label: "Thông tin trung tâm" },
+  { to: "/audit",      label: "Nhật ký thao tác",      role: "SUPER_ADMIN" },
 ];
 
 const ROLE_LABELS = {
@@ -34,12 +35,14 @@ export default function Sidebar() {
 
   return (
     <aside className="sidebar">
-      {/* Logo / Brand */}
+      {/* Brand */}
       <div className="sidebar-brand">
-        <div className="sidebar-brand-icon">🏛️</div>
+        <div className="sidebar-brand-icon">
+          <img src={logoHcc} alt="Logo Trung tâm PVHCC" className="sidebar-brand-logo" />
+        </div>
         <div className="sidebar-brand-text">
-          <div className="sidebar-brand-name">Trung tâm phục vụ hành chính công</div>
-          <div className="sidebar-brand-sub">xã Nghĩa Thành</div>
+          <div className="sidebar-brand-name">Trung tâm PVHCC</div>
+          <div className="sidebar-brand-sub">Xã Nghĩa Thành</div>
         </div>
       </div>
 
@@ -52,7 +55,6 @@ export default function Sidebar() {
             end={item.exact}
             className={({ isActive }) => `sidebar-nav-item ${isActive ? "active" : ""}`}
           >
-            <span className="sidebar-nav-icon">{item.icon}</span>
             <span className="sidebar-nav-label">{item.label}</span>
           </NavLink>
         ))}
@@ -70,10 +72,11 @@ export default function Sidebar() {
           </div>
         </div>
         <button className="sidebar-logout-btn" onClick={handleLogout} title="Đăng xuất">
-          ⎋
+          Thoát
         </button>
       </div>
     </aside>
   );
 }
+
 

@@ -93,7 +93,6 @@ function ConfirmDelete({ item, onClose, onDeleted }) {
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
         <div className="modal-body">
-          <div className="confirm-icon">⚠️</div>
           <div className="confirm-message" style={{ fontWeight: 600 }}>Xóa câu hỏi này?</div>
           <div className="confirm-sub" style={{ marginTop: 8 }}>"{item?.question}"</div>
         </div>
@@ -153,14 +152,14 @@ export default function FaqsPage() {
                 <th>Danh mục</th>
                 <th>Thứ tự</th>
                 <th>Trạng thái</th>
-                <th style={{ width: 120 }}>Thao tác</th>
+                <th style={{ width: 180 }}>Thao tác</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr><td colSpan={6}><div className="loading-full"><span className="spinner" /> Đang tải...</div></td></tr>
               ) : faqs.length === 0 ? (
-                <tr><td colSpan={6}><div className="empty-state"><div className="empty-state-icon">❓</div><div>Chưa có câu hỏi nào</div></div></td></tr>
+                <tr><td colSpan={6}><div className="empty-state"><div>Chưa có câu hỏi nào</div></div></td></tr>
               ) : faqs.map((f, idx) => (
                 <tr key={f.id}>
                   <td style={{ textAlign: "center", color: "var(--text-secondary)" }}>{idx+1}</td>
@@ -179,12 +178,13 @@ export default function FaqsPage() {
                   </td>
                   <td>
                     <div className="table-actions">
-                      {isEditor && (
-                        <button className="btn btn-ghost btn-sm" onClick={() => setModal({ type: "form", item: f })}>✏️</button>
-                      )}
+                      <button className="btn btn-ghost btn-sm" onClick={() => setModal({ type: "preview", item: f })}>Xem</button>
                       {isSuperAdmin && (
-                        <button className="btn btn-ghost btn-sm" style={{ color: "var(--danger)" }}
-                          onClick={() => setModal({ type: "delete", item: f })}>🗑</button>
+                        <button className="btn btn-danger btn-sm"
+                          onClick={() => setModal({ type: "delete", item: f })}>Xóa</button>
+                      )}
+                      {isEditor && (
+                        <button className="btn btn-ghost btn-sm" onClick={() => setModal({ type: "form", item: f })}>Sửa</button>
                       )}
                     </div>
                   </td>
@@ -195,6 +195,47 @@ export default function FaqsPage() {
         </div>
       </div>
 
+      {modal?.type === "preview" && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModal(null)}>
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-title">Chi tiết câu hỏi thường gặp</div>
+              <button className="modal-close" onClick={() => setModal(null)}>×</button>
+            </div>
+            <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div>
+                <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)" }}>Câu hỏi</div>
+                <div style={{ fontWeight: 700, fontSize: "var(--font-size-md)" }}>{modal.item.question}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)" }}>Câu trả lời</div>
+                <div style={{ whiteSpace: "pre-wrap", marginTop: 4 }}>{modal.item.answer}</div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)" }}>Danh mục</div>
+                  <div>{modal.item.category || "—"}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)" }}>Thứ tự</div>
+                  <div>{modal.item.sortOrder}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "var(--font-size-xs)", color: "var(--text-secondary)" }}>Trạng thái</div>
+                  <div>
+                    <span className={`badge ${modal.item.isPublished ? "badge-success" : "badge-neutral"}`}>
+                      {modal.item.isPublished ? "Công khai" : "Ẩn"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={() => setModal(null)}>Đóng</button>
+            </div>
+          </div>
+        </div>
+      )}
       {modal?.type === "form" && (
         <FaqModal item={modal.item} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />
       )}
