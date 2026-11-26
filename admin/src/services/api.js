@@ -151,5 +151,51 @@ export const api = {
   addCounterClosure: (counterId, data) => post(`/queue/admin/counters/${counterId}/closures`, data),
   removeCounterClosure: (counterId, closureId) => del(`/queue/admin/counters/${counterId}/closures/${closureId}`),
   setCounterStaff: (counterId, adminIds) => put(`/queue/admin/counters/${counterId}/staff`, { adminIds }),
+
+  // Góp ý người dân (Cán bộ, chuyên viên xem; SUPER_ADMIN xuất Excel tổng hợp)
+  getFeedbackList: (params = {}) => {
+    const q = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => v !== undefined && v !== null && v !== "" && q.append(k, v));
+    const qs = q.toString();
+    return get(`/admin/feedback${qs ? `?${qs}` : ""}`);
+  },
+  getFeedbackDetail: (id) => get(`/admin/feedback/${encodeURIComponent(id)}`),
+  exportFeedbackExcel: async (params = {}) => {
+    const q = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => v !== undefined && v !== null && v !== "" && q.append(k, v));
+    const qs = q.toString();
+    const token = getToken();
+    const res = await fetch(`${BASE}/admin/feedback/export${qs ? `?${qs}` : ""}`, {
+      method: "GET",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (res.status === 401) {
+      localStorage.removeItem("admin_token");
+      window.location.href = "/login";
+      throw new Error("Phiên đăng nhập hết hạn");
+    }
+    if (!res.ok) {
+      let msg = `Lỗi ${res.status}`;
+      try {
+        const errJson = await res.json();
+        if (errJson?.message) msg = Array.isArray(errJson.message) ? errJson.message.join("; ") : errJson.message;
+      } catch {
+        // ignore
+      }
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="?([^"]+)"?/i);
+    const fileName = match?.[1] || `Tong-hop-gop-y-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
 };
 

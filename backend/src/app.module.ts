@@ -10,6 +10,7 @@ import { FaqsModule } from './faqs/faqs.module';
 import { AuditModule } from './audit/audit.module';
 import { QueueModule } from './queue/queue.module';
 import { MediaModule } from './media/media.module';
+import { FeedbackModule } from './feedback/feedback.module';
 
 @Controller()
 class AppController {
@@ -26,6 +27,7 @@ class AppController {
         '/api/v1/notices',
         '/api/v1/faqs',
         '/api/v1/queue/catalog',
+        '/api/v1/feedback',
       ],
     };
   }
@@ -44,6 +46,7 @@ class AppController {
     AuditModule,
     QueueModule,
     MediaModule,
+    FeedbackModule,
   ],
   controllers: [AppController],
 })

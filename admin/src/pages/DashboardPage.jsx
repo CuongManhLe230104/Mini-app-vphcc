@@ -54,6 +54,12 @@ const AUDIT_ACTION_LABELS = {
   NOTICE_INVENTORY_IMPORT: "Đồng bộ kho 53 nguồn niêm yết",
   COUNTER_STANDARD_SETUP: "Đồng bộ 4 quầy chuẩn Q1–Q4",
   COUNTER_UPDATE: "Cập nhật cấu hình quầy",
+  FEEDBACK_EXPORT_EXCEL: "Xuất Excel tổng hợp góp ý",
+  FEEDBACK_ASSIGN: "Phân công xử lý góp ý",
+  FEEDBACK_UNASSIGN: "Gỡ phân công góp ý",
+  FEEDBACK_STATUS_CHANGE: "Cập nhật trạng thái góp ý",
+  FEEDBACK_REOPEN: "Mở lại góp ý",
+  FEEDBACK_NOTE_ADD: "Thêm ghi chú nội bộ góp ý",
 };
 
 function fmtDate(val) {

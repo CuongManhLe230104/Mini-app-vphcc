@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { api } from "../services/api";
 import { useAuth } from "../contexts/AuthContext";
-const LABELS = { POST_CREATE: "Tạo bản nháp", POST_EDIT: "Sửa bài", POST_SUBMIT: "Gửi duyệt", POST_PUBLISH: "Duyệt đăng", POST_REJECT: "Từ chối", POST_ARCHIVE: "Gỡ bài", CENTER_CREATE: "Tạo thông tin trung tâm", CENTER_UPDATE: "Sửa thông tin trung tâm", PROCEDURE_CREATE: "Thêm thủ tục", PROCEDURE_UPDATE: "Sửa thủ tục", PROCEDURE_HIDE: "Ẩn thủ tục", FAQ_CREATE: "Thêm hỏi đáp", FAQ_UPDATE: "Sửa hỏi đáp", FAQ_DELETE: "Xóa hỏi đáp", NOTICE_CREATE: "Thêm niêm yết", NOTICE_UPDATE: "Sửa niêm yết", NOTICE_DOCUMENT_ADD: "Thêm tài liệu", NOTICE_DOCUMENT_DELETE: "Gỡ tài liệu" };
+const LABELS = { POST_CREATE: "Tạo bản nháp", POST_EDIT: "Sửa bài", POST_SUBMIT: "Gửi duyệt", POST_PUBLISH: "Duyệt đăng", POST_REJECT: "Từ chối", POST_ARCHIVE: "Gỡ bài", CENTER_CREATE: "Tạo thông tin trung tâm", CENTER_UPDATE: "Sửa thông tin trung tâm", PROCEDURE_CREATE: "Thêm thủ tục", PROCEDURE_UPDATE: "Sửa thủ tục", PROCEDURE_HIDE: "Ẩn thủ tục", FAQ_CREATE: "Thêm hỏi đáp", FAQ_UPDATE: "Sửa hỏi đáp", FAQ_DELETE: "Xóa hỏi đáp", NOTICE_CREATE: "Thêm niêm yết", NOTICE_UPDATE: "Sửa niêm yết", NOTICE_DOCUMENT_ADD: "Thêm tài liệu", NOTICE_DOCUMENT_DELETE: "Gỡ tài liệu", FEEDBACK_EXPORT_EXCEL: "Xuất Excel tổng hợp góp ý", FEEDBACK_ASSIGN: "Phân công góp ý", FEEDBACK_UNASSIGN: "Gỡ phân công góp ý", FEEDBACK_STATUS_CHANGE: "Cập nhật trạng thái góp ý", FEEDBACK_REOPEN: "Mở lại góp ý", FEEDBACK_NOTE_ADD: "Thêm ghi chú góp ý" };
 export default function AuditPage() {
   const { user } = useAuth();
   const [page, setPage] = useState(1), [retry, setRetry] = useState(0);

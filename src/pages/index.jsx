@@ -74,6 +74,13 @@ const QUICK_SERVICES = [
     color: "bg-sky-50 text-sky-600",
     action: "oa",
   },
+  {
+    label: "Gửi góp ý",
+    icon: "zi-note",
+    color: "bg-indigo-50 text-indigo-600",
+    action: "nav",
+    to: "/feedback",
+  },
 ];
 
 /** Format ngày đăng */

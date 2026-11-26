@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 const PAGE_TITLES = {
   "/":            "Tổng quan hệ thống",
   "/queue":       "Đặt lịch & Cấp số",
+  "/feedback":    "Góp ý người dân",
   "/procedures":  "Thủ tục hành chính",
   "/posts":       "Tin tức & Hướng dẫn",
   "/notices":     "Niêm yết công khai",

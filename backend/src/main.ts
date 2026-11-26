@@ -13,11 +13,29 @@ async function bootstrap() {
   // Tắt ETag để tránh lỗi 304 Not Modified làm rỗng dữ liệu hoặc lỗi cache CORS trên WebView điện thoại
   const expressApp = app.getHttpAdapter().getInstance();
   expressApp.set('etag', false);
+
+  // Chỉ tin tưởng header X-Forwarded-For từ reverse proxy khi TRUST_PROXY được cấu hình tường minh trên VPS
+  const trustProxy = config.get<string>('TRUST_PROXY', '').trim();
+  if (trustProxy) {
+    if (trustProxy === 'true' || trustProxy === '1') {
+      expressApp.set('trust proxy', 1);
+    } else if (/^\d+$/.test(trustProxy)) {
+      expressApp.set('trust proxy', Number(trustProxy));
+    } else {
+      expressApp.set(
+        'trust proxy',
+        trustProxy.split(',').map(s => s.trim()).filter(Boolean),
+      );
+    }
+  }
+
   expressApp.use((req: any, res: any, next: () => void) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.on('finish', () => {
+      // Không ghi query string hay request body của các luồng nhạy cảm vào log truy cập
+      const safePath = String(req.originalUrl || req.url || '').split('?')[0];
       console.log(
-        `[API] ${req.method} ${req.originalUrl} -> ${res.statusCode} (Origin: ${req.headers.origin || 'none'})`,
+        `[API] ${req.method} ${safePath} -> ${res.statusCode} (Origin: ${req.headers.origin || 'none'})`,
       );
     });
     next();

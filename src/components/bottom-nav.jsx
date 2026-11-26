@@ -28,11 +28,12 @@ const TABS = [
   },
 ];
 
-// Ẩn thanh điều hướng ở các trang chi tiết.
+// Ẩn thanh điều hướng ở các trang chi tiết và biểu mẫu nhập liệu.
 const DETAIL_PATTERNS = [
   /^\/procedures\/.+/,
   /^\/posts\/.+/,
   /^\/notices\/.+/,
+  /^\/feedback(?:$|\/)/,
 ];
 
 function AppBottomNavigation() {
