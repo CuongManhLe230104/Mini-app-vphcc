@@ -18,6 +18,7 @@ import NoticesPage from "../pages/notices";
 import NoticeDetailPage from "../pages/notice-detail";
 import AccountPage from "../pages/account";
 import QueuePage from "../pages/queue";
+import FeedbackPage from "../pages/feedback";
 
 const Layout = () => {
   return (
@@ -27,6 +28,7 @@ const Layout = () => {
           <AnimationRoutes>
             <Route path="/" element={<HomePage />} />
             <Route path="/queue" element={<QueuePage />} />
+            <Route path="/feedback" element={<FeedbackPage />} />
             <Route path="/procedures" element={<ProceduresPage />} />
             <Route path="/procedures/:id" element={<ProcedureDetailPage />} />
             <Route path="/posts" element={<PostsPage />} />

@@ -6,6 +6,7 @@ import "./Sidebar.css";
 const NAV_ITEMS = [
   { to: "/",           label: "Tổng quan",             exact: true },
   { to: "/queue",      label: "Đặt lịch & Cấp số",     roles: ["SUPER_ADMIN", "COUNTER_STAFF"] },
+  { to: "/feedback",   label: "Góp ý người dân" },
   { to: "/procedures", label: "Thủ tục hành chính" },
   { to: "/posts",      label: "Tin tức & Hướng dẫn" },
   { to: "/notices",    label: "Niêm yết công khai" },

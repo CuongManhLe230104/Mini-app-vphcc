@@ -54,10 +54,12 @@ model Admin {
   authoredNotices Notice[]        @relation("NoticeAuthor")
   reviewedNotices Notice[]        @relation("NoticeReviewer")
   verifiedNotices Notice[]        @relation("NoticeVerifier")
-  handledFeedback Feedback[]      @relation("FeedbackHandler")
-  feedbackReplies FeedbackReply[]
-  auditLogs       AuditLog[]
-  counterStaff    CounterStaff[]
+  handledFeedback        Feedback[]               @relation("FeedbackHandler")
+  feedbackReplies        FeedbackReply[]
+  assignedCitizenFeedback CitizenFeedback[]        @relation("CitizenFeedbackAssignee")
+  citizenFeedbackActions CitizenFeedbackHistory[] @relation("CitizenFeedbackActor")
+  auditLogs              AuditLog[]
+  counterStaff           CounterStaff[]
 }
 
 // ============================================================
@@ -649,3 +651,82 @@ model QueueEvent {
   @@index([ticketId])
   @@index([appointmentId])
 }
+
+// ============================================================
+// GÓP Ý NGƯỜI DÂN GỬI RIÊNG CHO TRUNG TÂM (KHÔNG YÊU CẦU ĐĂNG NHẬP)
+// ============================================================
+
+/// Nhóm đối tượng góp ý
+enum CitizenFeedbackTarget {
+  CENTER // Góp ý về Trung tâm
+  MINI_APP // Góp ý về ứng dụng Mini App
+  OTHER // Vấn đề khác
+}
+
+/// Trạng thái xử lý góp ý
+enum CitizenFeedbackStatus {
+  NEW // Mới tiếp nhận
+  IN_PROGRESS // Đang xử lý
+  RESOLVED // Đã hoàn tất xử lý
+}
+
+/// Trạng thái xác thực số điện thoại
+enum PhoneVerificationStatus {
+  UNVERIFIED // Do người gửi tự cung cấp, chưa xác thực OTP
+}
+
+/// Loại hành động trong lịch sử xử lý góp ý
+enum CitizenFeedbackAction {
+  CREATED // Người dân gửi góp ý mới
+  ASSIGNED // Quản trị viên phân công cán bộ xử lý
+  UNASSIGNED // Quản trị viên gỡ phân công
+  STATUS_CHANGED // Chuyển trạng thái xử lý (NEW -> IN_PROGRESS -> RESOLVED)
+  REOPENED // Quản trị viên mở lại góp ý (RESOLVED -> IN_PROGRESS)
+  NOTE_ADDED // Thêm ghi chú nội bộ
+}
+
+/// Bản ghi góp ý riêng của người dân (không công khai)
+model CitizenFeedback {
+  id                      String                  @id @default(uuid())
+  code                    String                  @unique @db.VarChar(24) // Mã góp ý duy nhất trả về cho người dân
+  fullName                String                  @db.VarChar(120)
+  phoneNormalized         String                  @db.VarChar(20)
+  phoneVerificationStatus PhoneVerificationStatus @default(UNVERIFIED)
+  target                  CitizenFeedbackTarget   @default(CENTER)
+  content                 String                  @db.Text
+  status                  CitizenFeedbackStatus   @default(NEW)
+
+  assignedToId      String?
+  assignedTo        Admin?    @relation("CitizenFeedbackAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  resolutionSummary String?   @db.Text
+  resolvedAt        DateTime?
+
+  idempotencyKey String? @unique @db.VarChar(128)
+  payloadHash    String? @db.VarChar(64)
+
+  history   CitizenFeedbackHistory[]
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
+
+  @@index([status, createdAt])
+  @@index([target, createdAt])
+  @@index([assignedToId, status])
+  @@index([createdAt])
+}
+
+/// Lịch sử xử lý góp ý — chỉ ghi thêm từ backend, không cho sửa/xóa tùy ý
+model CitizenFeedbackHistory {
+  id           String                 @id @default(uuid())
+  feedbackId   String
+  feedback     CitizenFeedback        @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  actorAdminId String?
+  actorAdmin   Admin?                 @relation("CitizenFeedbackActor", fields: [actorAdminId], references: [id], onDelete: SetNull)
+  action       CitizenFeedbackAction
+  fromStatus   CitizenFeedbackStatus?
+  toStatus     CitizenFeedbackStatus?
+  note         String?                @db.Text
+  createdAt    DateTime               @default(now())
+
+  @@index([feedbackId, createdAt])
+}
+
